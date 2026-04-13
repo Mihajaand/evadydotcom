@@ -42,25 +42,41 @@ const useAuthStore = create((set, get) => ({
 
   /**
    * Inscription avec création de profil
+   * Utilise l'Edge Function signup (service_role) pour bypass le rate limit
    */
   signup: async ({ email, password, fullName, gender, birthdate, latitude, longitude }) => {
-    // 1. Créer le compte auth
-    const { data, error } = await supabase.auth.signUp({
+    // 1. Appeler l'Edge Function signup (crée user + profil côté serveur)
+    const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signup`;
+    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+    const response = await fetch(functionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+        'Authorization': `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+        fullName,
+        gender,
+        birthdate,
+        latitude: latitude || 0,
+        longitude: longitude || 0,
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Erreur lors de l\'inscription');
+    }
+
+    // 2. Se connecter avec les identifiants créés
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
     });
     if (error) throw error;
-
-    // 2. Créer le profil + abonnement via fonction SECURITY DEFINER (bypass RLS)
-    const { error: rpcError } = await supabase.rpc('create_profile', {
-      user_id: data.user.id,
-      user_gender: gender,
-      user_full_name: fullName,
-      user_birthdate: birthdate,
-      user_latitude: latitude || 0,
-      user_longitude: longitude || 0,
-    });
-    if (rpcError) throw rpcError;
 
     set({ user: data.user });
     await get().fetchProfile(data.user.id);
