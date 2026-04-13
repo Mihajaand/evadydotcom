@@ -1,0 +1,20 @@
+# Supabase
+.branches
+.temp
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local
+/node_modules
+/dist
+/build
+/coverage
+/.next
+/out
+/.vercel
+/.vercelignore
+/.env
+/.env.local
+/.env.*.local
+/.env.production    

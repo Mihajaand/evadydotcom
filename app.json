@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "E-VADY",
+    "slug": "e-vady",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F13E93"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "E-VADY a besoin de votre localisation pour trouver des personnes près de vous.",
+        "NSCameraUsageDescription": "E-VADY a besoin de la caméra pour prendre des photos de profil.",
+        "NSPhotoLibraryUsageDescription": "E-VADY a besoin d'accéder à vos photos pour votre profil."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F13E93"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-location",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "E-VADY a besoin d'accéder à vos photos pour votre profil."
+        }
+      ],
+      "expo-web-browser"
+    ]
+  }
+}
