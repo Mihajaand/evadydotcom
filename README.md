@@ -100,3 +100,17 @@ e-vady/
 | Basic | 9,99€/mois | 100 |
 | Premium | 19,99€/mois | 300 |
 | VIP | 39,99€/mois | Illimité |
+
+## 📦 variable d'environmment
+
+# Supabase
+EXPO_PUBLIC_SUPABASE_URL=https://xsmltvqontirppmyyfkh.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzbWx0dnFvbnRpcnBwbXl5ZmtoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwODc5MjgsImV4cCI6MjA5MTY2MzkyOH0.oXPaghoOmLeA0WY4galgy0PjzlI0mRqMkFZh9EFssX4
+
+# Stripe
+EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_51SOa0NLkP8GG04LfDC4E8cksxU6wiBIShbgAnpaln65weDVicBoHbMjsYwasAzN7GeOkHYgND619qHqmbOyjWmO000EZqCQDBJ
+
+# Stripe Product IDs
+EXPO_PUBLIC_STRIPE_PRODUCT_BASIC=prod_UKSA5byhwMvyNq
+EXPO_PUBLIC_STRIPE_PRODUCT_PREMIUM=prod_UKSAffBD6qq8Q6
+EXPO_PUBLIC_STRIPE_PRODUCT_VIP=prod_UKSBmT4H0Q8BTT
