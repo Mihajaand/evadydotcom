@@ -444,16 +444,6 @@ const HomeScreen = () => {
               {...panResponder.panHandlers}
               style={[animatedCardStyle, styles.cardTop]}
             >
-              {/* AJOUT : Badge dynamique "SUIVANT" qui apparaît en glissant à droite */}
-              <Animated.View style={[styles.nextStamp, { opacity: nextOpacity }]}>
-                <Text style={styles.nextStampText}>SUIVANT</Text>
-              </Animated.View>
-
-              {/* AJOUT : Badge dynamique "PASS" qui apparaît en glissant à gauche */}
-              <Animated.View style={[styles.passStamp, { opacity: passOpacity }]}>
-                <Text style={styles.passStampText}>PASS</Text>
-              </Animated.View>
-
               <ProfileCard
                 profile={currentProfile}
                 distance={currentProfile.distance}
