@@ -9,8 +9,15 @@ import { COLORS } from '../utils/constants';
 import { calculateAge, formatDistance } from '../utils/helpers';
 
 const { width, height } = Dimensions.get('window');
-const CARD_WIDTH = width * 0.9;
-const CARD_HEIGHT = height * 0.65;
+
+/**
+ * @name CARD_DIMENSIONS
+ * @description Jdoc : Dimensions de la carte de profil.
+ * CARD_WIDTH est étendu à 94% de la largeur et CARD_HEIGHT à 74% de la hauteur
+ * pour que l'image de profil couvre majestueusement la majeure partie de la page.
+ **/
+const CARD_WIDTH = width * 0.94;
+const CARD_HEIGHT = height * 0.74;
 
 const ProfileCard = ({ profile, distance }) => {
   if (!profile) return null;
