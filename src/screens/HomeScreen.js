@@ -44,6 +44,39 @@ const HomeScreen = () => {
    **/
   const currentProfile = profiles[currentIndex];
 
+  // AJOUT : États et Refs pour la micro-animation des petits cœurs qui s'envolent
+  const [flyingHearts, setFlyingHearts] = useState([]);
+  const likeBtnScale = useRef(new Animated.Value(1)).current;
+
+  /**
+   * @name spawnHearts
+   * @description Jdoc: Spawne plusieurs petits cœurs à des positions horizontales et échelles aléatoires,
+   * puis les anime en élévation et opacité progressive avant de les retirer du state.
+   **/
+  const spawnHearts = () => {
+    const newHearts = Array.from({ length: 6 }).map((_, index) => {
+      const id = Date.now() + index + Math.random();
+      const anim = new Animated.Value(0);
+
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 900 + Math.random() * 400,
+        useNativeDriver: true,
+      }).start(() => {
+        setFlyingHearts((prev) => prev.filter((h) => h.id !== id));
+      });
+
+      return {
+        id,
+        anim,
+        x: -40 + Math.random() * 80, // dispersion horizontale aléatoire
+        scale: 0.6 + Math.random() * 0.7, // taille aléatoire
+      };
+    });
+
+    setFlyingHearts((prev) => [...prev, ...newHearts]);
+  };
+
   // MODIFICATION : Récupération des coordonnées GPS en temps réel via le hook useLocation
   const { location: gpsLocation, errorMsg: locationError, loading: loadingLocation } = useLocation();
 
@@ -140,8 +173,8 @@ const HomeScreen = () => {
     extrapolate: 'clamp',
   });
 
-  // Opacité progressive des badges LIKE/PASS lors du glissé
-  const likeOpacity = pan.x.interpolate({
+  // MODIFICATION : Opacité progressive des badges PASS/SUIVANT lors du glissé
+  const nextOpacity = pan.x.interpolate({
     inputRange: [0, 120],
     outputRange: [0, 1],
     extrapolate: 'clamp',
@@ -221,15 +254,50 @@ const HomeScreen = () => {
     });
   };
 
+  /**
+   * @name handleLike
+   * @description Jdoc: Déclenche l'animation de squeeze-bounce du bouton flottant,
+   * lance l'envolée des petits cœurs, puis après un délai de 600ms, swipe la carte vers la droite pour liker.
+   **/
   const handleLike = () => {
-    triggerLike();
+    // 1. Animation de rebond tactile sur le bouton (effet squeeze & scale bounce)
+    Animated.sequence([
+      Animated.timing(likeBtnScale, {
+        toValue: 0.82,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(likeBtnScale, {
+        toValue: 1.25,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+      Animated.timing(likeBtnScale, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // 2. Générer l'envolée de cœurs volants
+    spawnHearts();
+
+    // 3. Déclencher le swipe physique de la carte vers la droite après 600ms de plaisir visuel
+    setTimeout(() => {
+      triggerLike();
+    }, 600);
   };
 
   const handlePass = () => {
     triggerPass();
   };
 
-  // MODIFICATION : Création du PanResponder pour le glissé tactile
+  /**
+   * @name panResponder
+   * @description Jdoc : PanResponder gérant les gestes de glissement Tinder.
+   * Modifié de sorte que le glissement tactile (gauche ou droite) effectue UNIQUEMENT une action de PASS (Suivant),
+   * le bouton J'adore flottant étant la seule option pour liker et matcher.
+   **/
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -239,14 +307,16 @@ const HomeScreen = () => {
       ),
       onPanResponderRelease: (e, gestureState) => {
         if (gestureState.dx > 120) {
+          // MODIFICATION : Glissement vers la droite est désormais un PASS (Suivant)
           Animated.timing(pan, {
             toValue: { x: width + 100, y: gestureState.dy },
             duration: 200,
             useNativeDriver: false,
           }).start(() => {
-            handleLikeSwipe();
+            handlePassSwipe();
           });
         } else if (gestureState.dx < -120) {
+          // Glissement vers la gauche reste également un PASS
           Animated.timing(pan, {
             toValue: { x: -width - 100, y: gestureState.dy },
             duration: 200,
@@ -255,6 +325,7 @@ const HomeScreen = () => {
             handlePassSwipe();
           });
         } else {
+          // Retour au centre s'il n'y a pas assez de glissement
           Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
             friction: 4,
@@ -373,9 +444,9 @@ const HomeScreen = () => {
               {...panResponder.panHandlers}
               style={[animatedCardStyle, styles.cardTop]}
             >
-              {/* AJOUT : Badge dynamique "LIKE" qui apparaît en glissant à droite */}
-              <Animated.View style={[styles.likeStamp, { opacity: likeOpacity }]}>
-                <Text style={styles.likeStampText}>LIKE</Text>
+              {/* AJOUT : Badge dynamique "SUIVANT" qui apparaît en glissant à droite */}
+              <Animated.View style={[styles.nextStamp, { opacity: nextOpacity }]}>
+                <Text style={styles.nextStampText}>SUIVANT</Text>
               </Animated.View>
 
               {/* AJOUT : Badge dynamique "PASS" qui apparaît en glissant à gauche */}
@@ -389,17 +460,57 @@ const HomeScreen = () => {
               />
 
               {/**
-               * @name floatingLikeBtn
-               * @description Jdoc: Bouton "J'adore" (Like) placé en absolu SUR l'image de profil en bas à droite.
-               * Le bouton Pass (X) est entièrement masqué car le swipe de l'image gère déjà cette fonctionnalité.
+               * @name likeBtnContainer
+               * @description Jdoc: Conteneur du bouton "J'adore" flottant et des petits cœurs volants
+               * qui se déclenchent lors du clic avec des coordonnées d'envol aléatoires.
                **/}
-              <TouchableOpacity
-                style={styles.floatingLikeBtn}
-                onPress={handleLike}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="heart" size={36} color={COLORS.white} />
-              </TouchableOpacity>
+              <View style={styles.likeBtnContainer}>
+                {flyingHearts.map((heart) => {
+                  const translateY = heart.anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -160],
+                  });
+
+                  const translateX = heart.anim.interpolate({
+                    inputRange: [0, 0.5, 1],
+                    outputRange: [0, heart.x, heart.x * 1.5],
+                  });
+
+                  const opacity = heart.anim.interpolate({
+                    inputRange: [0, 0.75, 1],
+                    outputRange: [1, 0.8, 0],
+                  });
+
+                  return (
+                    <Animated.View
+                      key={heart.id}
+                      style={[
+                        styles.flyingHeart,
+                        {
+                          transform: [
+                            { translateX },
+                            { translateY },
+                            { scale: heart.scale },
+                          ],
+                          opacity,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="heart" size={24} color="#FF2D55" />
+                    </Animated.View>
+                  );
+                })}
+
+                <Animated.View style={{ transform: [{ scale: likeBtnScale }] }}>
+                  <TouchableOpacity
+                    style={styles.floatingLikeBtn}
+                    onPress={handleLike}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="heart" size={36} color={COLORS.white} />
+                  </TouchableOpacity>
+                </Animated.View>
+              </View>
             </Animated.View>
           </View>
         </>
@@ -553,11 +664,14 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.95 }, { translateY: 10 }],
     opacity: 0.75,
   },
-  // AJOUT : Bouton flottant "J'adore" placé directement sur l'image
-  floatingLikeBtn: {
+  // AJOUT : Conteneur pour le bouton flottant J'adore et les cœurs volants
+  likeBtnContainer: {
     position: 'absolute',
     bottom: 25,
     right: 25,
+    zIndex: 100,
+  },
+  floatingLikeBtn: {
     width: 68,
     height: 68,
     borderRadius: 34,
@@ -569,23 +683,28 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    zIndex: 100, // Garantit qu'il est cliquable au-dessus de la carte
   },
-  // AJOUT : Tampons LIKE / PASS
-  likeStamp: {
+  flyingHeart: {
+    position: 'absolute',
+    bottom: 22,
+    right: 22,
+    zIndex: 99,
+  },
+  // AJOUT : Tampons PASS / SUIVANT
+  nextStamp: {
     position: 'absolute',
     top: 40,
     left: 40,
     zIndex: 1000,
     borderWidth: 4,
-    borderColor: '#4CD964',
+    borderColor: COLORS.primary,
     paddingHorizontal: 15,
     paddingVertical: 5,
     borderRadius: 8,
     transform: [{ rotate: '-15deg' }],
   },
-  likeStampText: {
-    color: '#4CD964',
+  nextStampText: {
+    color: COLORS.primary,
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: 2,
