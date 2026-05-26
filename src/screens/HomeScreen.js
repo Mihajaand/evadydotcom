@@ -19,11 +19,12 @@ import {
   Alert,
   PanResponder, // MODIFICATION : Ajout pour gérer le glissement tactile Tinder
   Image, // MODIFICATION : Ajout pour les avatars sur la carte
+  ScrollView, // MODIFICATION : Ajout pour les barres de défilement de filtres
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Callout } from 'react-native-maps'; // MODIFICATION : Intégration de la carte interactive
 import { COLORS } from '../utils/constants';
-import { haversineDistance, calculateAge, formatDistance } from '../utils/helpers'; // MODIFICATION : Import des helpers d'âge et formatage
+import { haversineDistance, calculateAge, formatDistance, getCountryFromCoords } from '../utils/helpers'; // MODIFICATION : Import des helpers d'âge et formatage
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import ProfileCard from '../components/ProfileCard';
@@ -38,11 +39,49 @@ const HomeScreen = () => {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('card'); // MODIFICATION : 'card' (glissé Tinder) ou 'map' (carte géographique)
 
+  // ÉTATS DE FILTRAGE : Distance et Pays
+  const [selectedDistanceRange, setSelectedDistanceRange] = useState('all');
+  const [selectedCountry, setSelectedCountry] = useState('all');
+  const [activeFilterType, setActiveFilterType] = useState('distance'); // 'distance' ou 'country'
+
+  // Réinitialiser l'index courant à 0 lorsque les filtres changent pour éviter les erreurs hors-limites
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [selectedDistanceRange, selectedCountry]);
+
+  // Filtrage des profils selon la distance et le pays sélectionnés
+  const filteredProfiles = profiles.filter((p) => {
+    // 1. Filtre par tranche de distance
+    let matchesDistance = true;
+    if (selectedDistanceRange !== 'all') {
+      const dist = p.distance;
+      if (selectedDistanceRange === '0-400') {
+        matchesDistance = dist >= 0 && dist <= 400;
+      } else if (selectedDistanceRange === '401-1000') {
+        matchesDistance = dist > 400 && dist <= 1000;
+      } else if (selectedDistanceRange === '1001-3000') {
+        matchesDistance = dist > 1000 && dist <= 3000;
+      } else if (selectedDistanceRange === '3001-5000') {
+        matchesDistance = dist > 3000 && dist <= 5000;
+      } else if (selectedDistanceRange === '5000+') {
+        matchesDistance = dist > 5000;
+      }
+    }
+
+    // 2. Filtre par pays
+    let matchesCountry = true;
+    if (selectedCountry !== 'all') {
+      matchesCountry = p.country === selectedCountry;
+    }
+
+    return matchesDistance && matchesCountry;
+  });
+
   /**
    * @name currentProfile
-   * @description Jdoc: Candidat de profil recommandé actif à l'index courant.
+   * @description Jdoc: Candidat de profil recommandé actif à l'index courant parmi les profils filtrés.
    **/
-  const currentProfile = profiles[currentIndex];
+  const currentProfile = filteredProfiles[currentIndex];
 
   // AJOUT : États et Refs pour la micro-animation des petits cœurs qui s'envolent
   const [flyingHearts, setFlyingHearts] = useState([]);
@@ -138,16 +177,21 @@ const HomeScreen = () => {
 
       if (error) throw error;
 
-      // MODIFICATION : Calculer la distance relative à la position GPS réelle
-      const profilesWithDistance = (data || []).map((p) => ({
-        ...p,
-        distance: haversineDistance(
+      // MODIFICATION : Calculer la distance et le pays relatifs à la position GPS réelle
+      const profilesWithDistance = (data || []).map((p) => {
+        const distance = haversineDistance(
           userLat,
           userLng,
           p.latitude,
           p.longitude
-        ),
-      }));
+        );
+        const country = getCountryFromCoords(p.latitude, p.longitude);
+        return {
+          ...p,
+          distance,
+          country,
+        };
+      });
 
       // Trier par distance (plus proches en premier)
       profilesWithDistance.sort((a, b) => a.distance - b.distance);
@@ -379,20 +423,23 @@ const HomeScreen = () => {
     );
   }
 
-  // Plus de profils disponibles
-  if (!currentProfile) {
-    return (
-      <View style={styles.centerContainer}>
-        <Ionicons name="heart-dislike-outline" size={80} color={COLORS.gray} />
-        <Text style={styles.emptyTitle}>Plus de profils</Text>
-        <Text style={styles.emptyText}>Revenez plus tard pour découvrir de nouvelles personnes</Text>
-        <TouchableOpacity style={styles.refreshBtn} onPress={fetchProfiles}>
-          <Ionicons name="refresh" size={20} color={COLORS.white} />
-          <Text style={styles.refreshText}>Actualiser</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const distanceRanges = [
+    { label: 'Toutes distances', value: 'all' },
+    { label: '0 - 400 km', value: '0-400' },
+    { label: '401 - 1000 km', value: '401-1000' },
+    { label: '1001 - 3000 km', value: '1001-3000' },
+    { label: '3001 - 5000 km', value: '3001-5000' },
+    { label: '5000 km+', value: '5000+' },
+  ];
+
+  const countries = [
+    { label: 'Tous pays', value: 'all' },
+    { label: 'France 🇫🇷', value: 'France' },
+    { label: 'La Réunion 🇷🇪', value: 'La Réunion' },
+    { label: 'Madagascar 🇲🇬', value: 'Madagascar' },
+    { label: 'Seychelles 🇸🇨', value: 'Seychelles' },
+    { label: 'Mayotte 🇾🇹', value: 'Mayotte' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -400,7 +447,7 @@ const HomeScreen = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Découvrir</Text>
         <Text style={styles.headerCount}>
-          {profiles.length - currentIndex} profil{profiles.length - currentIndex > 1 ? 's' : ''}
+          {filteredProfiles.length - currentIndex > 0 ? filteredProfiles.length - currentIndex : 0} profil{filteredProfiles.length - currentIndex > 1 ? 's' : ''}
         </Text>
       </View>
 
@@ -425,16 +472,125 @@ const HomeScreen = () => {
         </TouchableOpacity>
       </View>
 
+      {/* BARRES DE FILTRAGE DES PROFILS (visibles uniquement sur la Carte) */}
+      {viewMode === 'map' && (
+        <View style={styles.filtersContainer}>
+          {/* Commutateur de type de filtre : par Distance ou par Pays */}
+          <TouchableOpacity
+            style={styles.filterTypeSwitcher}
+            onPress={() => {
+              if (activeFilterType === 'distance') {
+                setActiveFilterType('country');
+                setSelectedDistanceRange('all');
+              } else {
+                setActiveFilterType('distance');
+                setSelectedCountry('all');
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.filterTypeLabelContainer}>
+              <Ionicons
+                name={activeFilterType === 'distance' ? 'pin-outline' : 'globe-outline'}
+                size={16}
+                color={COLORS.primary}
+              />
+              <Text style={styles.filterTypeLabel}>
+                Option du filtre : <Text style={styles.filterTypeBold}>{activeFilterType === 'distance' ? 'Distance' : 'Pays'}</Text>
+              </Text>
+            </View>
+            <View style={styles.filterTypeIconContainer}>
+              <Ionicons name="swap-vertical-outline" size={16} color={COLORS.primary} />
+            </View>
+          </TouchableOpacity>
+
+          {activeFilterType === 'distance' ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterScrollContent}
+            >
+              {distanceRanges.map((range) => (
+                <TouchableOpacity
+                  key={range.value}
+                  style={[
+                    styles.filterChip,
+                    selectedDistanceRange === range.value && styles.filterChipActive
+                  ]}
+                  onPress={() => {
+                    setSelectedDistanceRange(range.value);
+                    if (range.value !== 'all') {
+                      setSelectedCountry('all');
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      selectedDistanceRange === range.value && styles.filterChipTextActive
+                    ]}
+                  >
+                    {range.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterScrollContent}
+            >
+              {countries.map((country) => (
+                <TouchableOpacity
+                  key={country.value}
+                  style={[
+                    styles.filterChip,
+                    selectedCountry === country.value && styles.filterChipActive
+                  ]}
+                  onPress={() => {
+                    setSelectedCountry(country.value);
+                    if (country.value !== 'all') {
+                      setSelectedDistanceRange('all');
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      selectedCountry === country.value && styles.filterChipTextActive
+                    ]}
+                  >
+                    {country.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
+
       {viewMode === 'card' ? (
-        <>
-          {/* Carte du profil avec animation Tinder */}
+        !currentProfile ? (
+          <View style={styles.centerContainer}>
+            <Ionicons name="heart-dislike-outline" size={80} color={COLORS.gray} />
+            <Text style={styles.emptyTitle}>Plus de profils</Text>
+            <Text style={styles.emptyText}>Essayez de modifier vos filtres ou revenez plus tard.</Text>
+            <TouchableOpacity style={styles.refreshBtn} onPress={fetchProfiles}>
+              <Ionicons name="refresh" size={20} color={COLORS.white} />
+              <Text style={styles.refreshText}>Actualiser</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
           <View style={styles.cardContainer}>
             {/* AJOUT : Carte du dessous (prochain profil en 3D deck) */}
-            {currentIndex + 1 < profiles.length && (
+            {currentIndex + 1 < filteredProfiles.length && (
               <View style={styles.cardUnderneath}>
                 <ProfileCard
-                  profile={profiles[currentIndex + 1]}
-                  distance={profiles[currentIndex + 1].distance}
+                  profile={filteredProfiles[currentIndex + 1]}
+                  distance={filteredProfiles[currentIndex + 1].distance}
                 />
               </View>
             )}
@@ -503,7 +659,7 @@ const HomeScreen = () => {
               </View>
             </Animated.View>
           </View>
-        </>
+        )
       ) : (
         /* AJOUT : Carte Google/Apple Maps interactive avec profils géolocalisés */
         <View style={styles.mapContainer}>
@@ -522,7 +678,7 @@ const HomeScreen = () => {
             </Marker>
 
             {/* Repères pour les autres profils à proximité */}
-            {profiles.map((p) => {
+            {filteredProfiles.map((p) => {
               if (!p.latitude || !p.longitude) return null;
               const pAge = calculateAge(p.birth_date);
               return (
@@ -863,11 +1019,83 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   calloutAction: {
-    fontSize: 12,
-    color: COLORS.secondary,
-    fontWeight: '800',
     marginTop: 8,
     textAlign: 'center',
+  },
+  // AJOUT : Styles pour les filtres de distance et pays
+  filtersContainer: {
+    paddingVertical: 10,
+    backgroundColor: COLORS.white,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.lightGray,
+  },
+  filterScrollContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  countryFilterScroll: {
+    marginTop: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.lightGray,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.darkGray,
+  },
+  filterChipTextActive: {
+    color: COLORS.white,
+    fontWeight: '700',
+  },
+  // AJOUT : Commutateur de filtre (Distance vs Pays)
+  filterTypeSwitcher: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: COLORS.lightGray,
+    marginHorizontal: 20,
+    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  filterTypeLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterTypeLabel: {
+    fontSize: 14,
+    color: COLORS.darkGray,
+    fontWeight: '600',
+  },
+  filterTypeBold: {
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  filterTypeIconContainer: {
+    backgroundColor: COLORS.white,
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
 });
 

@@ -64,3 +64,43 @@ export const calculateAge = (birthdate) => {
   }
   return age;
 };
+
+/**
+ * Détermine le pays d'un profil à partir de ses coordonnées GPS (latitude/longitude)
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {string} Nom du pays ('France', 'La Réunion', 'Madagascar', 'Seychelles', 'Mayotte', ou 'Autre')
+ */
+export const getCountryFromCoords = (lat, lng) => {
+  if (lat === undefined || lng === undefined || (lat === 0 && lng === 0)) {
+    return 'Autre';
+  }
+
+  // Mayotte (Latitude env. -12.8, Longitude env. 45.1)
+  if (lat >= -13.2 && lat <= -12.5 && lng >= 44.8 && lng <= 45.4) {
+    return 'Mayotte';
+  }
+
+  // La Réunion (Latitude env. -21.1, Longitude env. 55.5)
+  if (lat >= -21.6 && lat <= -20.7 && lng >= 55.1 && lng <= 56.0) {
+    return 'La Réunion';
+  }
+
+  // Seychelles (Latitude env. -4.6, Longitude env. 55.5)
+  if (lat >= -5.5 && lat <= -3.5 && lng >= 55.0 && lng <= 56.5) {
+    return 'Seychelles';
+  }
+
+  // Madagascar (Latitude env. -18.7, Longitude env. 46.8)
+  if (lat >= -26.0 && lat <= -11.5 && lng >= 43.0 && lng <= 51.0) {
+    return 'Madagascar';
+  }
+
+  // France Métropolitaine (Latitude env. 46.2, Longitude env. 2.2)
+  if (lat >= 41.0 && lat <= 51.5 && lng >= -5.5 && lng <= 10.0) {
+    return 'France';
+  }
+
+  return 'Autre';
+};
+
