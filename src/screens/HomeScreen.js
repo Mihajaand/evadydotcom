@@ -86,7 +86,27 @@ const HomeScreen = () => {
   // AJOUT : États et Refs pour la micro-animation des petits cœurs qui s'envolent
   const [flyingHearts, setFlyingHearts] = useState([]);
   const likeBtnScale = useRef(new Animated.Value(1)).current;
+  const floatingAnim = useRef(new Animated.Value(0)).current; // MODIFICATION : Animation de flottaison
+  const isTransitioning = useRef(false); // MODIFICATION : Blocage durant la transition pour éviter les sauts
   const mapRef = useRef(null); // AJOUT : Ref de la carte géographique interactive
+
+  // MODIFICATION : Effet de flottaison continue et douce pour le bouton J'adore
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatingAnim, {
+          toValue: -8,
+          duration: 1800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatingAnim, {
+          toValue: 0,
+          duration: 1800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [floatingAnim]);
 
   /**
    * @name spawnHearts
@@ -349,12 +369,39 @@ const HomeScreen = () => {
     filteredProfiles,
   ]);
 
-  // MODIFICATION : Interpollation de la rotation 3D de la carte Tinder
+  // MODIFICATION : Interpollation de la rotation minimale style galerie photo
   const rotate = pan.x.interpolate({
     inputRange: [-width / 2, 0, width / 2],
-    outputRange: ['-10deg', '0deg', '10deg'],
+    outputRange: ['-1deg', '0deg', '1deg'],
     extrapolate: 'clamp',
   });
+
+  // MODIFICATION : Interpolation de la carte du dessous pour une transition de rapprochement premium
+  const underneathScale = pan.x.interpolate({
+    inputRange: [-width / 2, 0, width / 2],
+    outputRange: [1, 0.98, 1],
+    extrapolate: 'clamp',
+  });
+
+  const underneathTranslateY = pan.x.interpolate({
+    inputRange: [-width / 2, 0, width / 2],
+    outputRange: [0, 0, 0],
+    extrapolate: 'clamp',
+  });
+
+  const underneathOpacity = pan.x.interpolate({
+    inputRange: [-width / 2, 0, width / 2],
+    outputRange: [1, 0.85, 1],
+    extrapolate: 'clamp',
+  });
+
+  const animatedUnderneathStyle = {
+    transform: [
+      { scale: underneathScale },
+      { translateY: underneathTranslateY },
+    ],
+    opacity: underneathOpacity,
+  };
 
   // MODIFICATION : Opacité progressive des badges PASS/SUIVANT lors du glissé
   const nextOpacity = pan.x.interpolate({
@@ -372,18 +419,22 @@ const HomeScreen = () => {
   const animatedCardStyle = {
     transform: [
       { translateX: pan.x },
-      { translateY: pan.y },
       { rotate: rotate },
     ],
   };
 
-  // MODIFICATION : Traitement de l'action de Like après swipe
+  // MODIFICATION : Traitement de l'action de Like après swipe avec transition
   const handleLikeSwipe = async () => {
     const currentProfile = filteredProfiles[currentIndex];
     if (!currentProfile) return;
 
-    pan.setValue({ x: 0, y: 0 });
-    setCurrentIndex((prev) => prev + 1);
+    isTransitioning.current = true;
+    // Transition fluide : on attend un court instant avant de réinitialiser la position et passer au profil suivant
+    setTimeout(() => {
+      pan.setValue({ x: 0, y: 0 });
+      setCurrentIndex((prev) => prev + 1);
+      isTransitioning.current = false;
+    }, 250);
 
     try {
       // Enregistrer le like
@@ -401,7 +452,19 @@ const HomeScreen = () => {
         .single();
 
       if (mutualLike) {
-        Alert.alert('💕 C\'est un Match !', `Vous et ${currentProfile.full_name} vous aimez mutuellement !`);
+        // Envoi automatique d'un message de bienvenue lors du match
+        try {
+          await supabase.from('messages').insert({
+            sender_id: currentProfile.id,
+            receiver_id: user.id,
+            content: `Coucou ! Nous avons matché ! 😊 Comment vas-tu ?`,
+            is_read: false,
+          });
+        } catch (msgErr) {
+          console.error("Erreur d'envoi du message de match automatique:", msgErr);
+        }
+
+        Alert.alert('💕 C\'est un Match !', `Vous et ${currentProfile.full_name} vous aimez mutuellement ! Un message automatique vous a été envoyé.`);
       }
     } catch (error) {
       if (!error.message?.includes('duplicate')) {
@@ -410,11 +473,17 @@ const HomeScreen = () => {
     }
   };
 
-  // MODIFICATION : Traitement de l'action de Pass après swipe (Enregistre le pass dans Supabase)
+  // MODIFICATION : Traitement de l'action de Pass après swipe avec transition
   const handlePassSwipe = async () => {
     const currentProfile = filteredProfiles[currentIndex];
-    pan.setValue({ x: 0, y: 0 });
-    setCurrentIndex((prev) => prev + 1);
+    
+    isTransitioning.current = true;
+    // Transition fluide : on attend un court instant avant de réinitialiser la position et passer au profil suivant
+    setTimeout(() => {
+      pan.setValue({ x: 0, y: 0 });
+      setCurrentIndex((prev) => prev + 1);
+      isTransitioning.current = false;
+    }, 250);
 
     if (currentProfile && user?.id) {
       try {
@@ -495,35 +564,48 @@ const HomeScreen = () => {
    **/
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: Animated.event(
-        [null, { dx: pan.x, dy: pan.y }],
-        { useNativeDriver: false }
-      ),
+      onStartShouldSetPanResponder: () => !isTransitioning.current,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Améliore le glissé en ignorant les gestes durant la transition et en filtrant les petits mouvements parasites
+        return !isTransitioning.current && Math.abs(gestureState.dx) > 8;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (!isTransitioning.current) {
+          pan.x.setValue(gestureState.dx);
+          pan.y.setValue(gestureState.dy);
+        }
+      },
       onPanResponderRelease: (e, gestureState) => {
-        if (gestureState.dx > 120) {
-          // MODIFICATION : Glissement vers la droite est désormais un PASS (Suivant) (avec useNativeDriver: true)
+        if (isTransitioning.current) return;
+        
+        // Vitesse du glissé ou distance seuil
+        const isSwiped = Math.abs(gestureState.dx) > 120 || Math.abs(gestureState.vx) > 0.5;
+        if (isSwiped && gestureState.dx > 0) {
+          // Glissement vers la droite
+          isTransitioning.current = true;
           Animated.timing(pan, {
             toValue: { x: width + 100, y: gestureState.dy },
-            duration: 200,
+            duration: 250,
             useNativeDriver: true,
           }).start(() => {
             handlePassSwipe();
           });
-        } else if (gestureState.dx < -120) {
-          // Glissement vers la gauche reste également un PASS
+        } else if (isSwiped && gestureState.dx < 0) {
+          // Glissement vers la gauche
+          isTransitioning.current = true;
           Animated.timing(pan, {
             toValue: { x: -width - 100, y: gestureState.dy },
-            duration: 200,
+            duration: 250,
             useNativeDriver: true,
           }).start(() => {
             handlePassSwipe();
           });
         } else {
-          // Retour au centre s'il n'y a pas assez de glissement
+          // Retour au centre s'il n'y a pas assez de glissement (ressort plus doux)
           Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
-            friction: 4,
+            friction: 6,
+            tension: 40,
             useNativeDriver: true,
           }).start();
         }
@@ -738,14 +820,14 @@ const HomeScreen = () => {
           </View>
         ) : (
           <View style={styles.cardContainer}>
-            {/* AJOUT : Carte du dessous (prochain profil en 3D deck) */}
+            {/* AJOUT : Carte du dessous (prochain profil en 3D deck) animée pour une transition premium */}
             {currentIndex + 1 < filteredProfiles.length && (
-              <View style={styles.cardUnderneath}>
+              <Animated.View style={[styles.cardUnderneath, animatedUnderneathStyle]}>
                 <ProfileCard
                   profile={filteredProfiles[currentIndex + 1]}
                   distance={filteredProfiles[currentIndex + 1].distance}
                 />
-              </View>
+              </Animated.View>
             )}
 
             {/* Carte principale (au dessus) avec gestionnaires PanResponder */}
@@ -800,7 +882,7 @@ const HomeScreen = () => {
                   );
                 })}
 
-                <Animated.View style={{ transform: [{ scale: likeBtnScale }] }}>
+                <Animated.View style={{ transform: [{ scale: likeBtnScale }, { translateY: floatingAnim }] }}>
                   <TouchableOpacity
                     style={styles.floatingLikeBtn}
                     onPress={handleLike}
@@ -961,8 +1043,6 @@ const styles = StyleSheet.create({
     zIndex: 1,
     width: '100%',
     alignItems: 'center',
-    transform: [{ scale: 0.95 }, { translateY: 10 }],
-    opacity: 0.75,
   },
   // AJOUT : Conteneur pour le bouton flottant J'adore et les cœurs volants
   likeBtnContainer: {
@@ -972,17 +1052,19 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   floatingLikeBtn: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: COLORS.primary,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: '#FF2D55', // Rose/Rouge premium vibrant
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    borderWidth: 4,
+    borderColor: COLORS.white,
+    elevation: 12,
+    shadowColor: '#FF2D55',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
   },
   flyingHeart: {
     position: 'absolute',
