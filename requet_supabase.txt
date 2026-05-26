@@ -1,0 +1,95 @@
+
+/**
+ * @table passes
+ * @description
+ * Table de stockage des profils ignorés/passés temporairement par un utilisateur
+ * lors du swipe Tinder.
+ *
+ * OBJECTIF :
+ * - Empêcher la réapparition immédiate des profils ignorés
+ * - Réafficher automatiquement les profils après un délai défini
+ *   (ex: 10 minutes)
+ * - Permettre une rotation dynamique des profils disponibles
+ *
+ * FONCTIONNEMENT :
+ * - Lorsqu’un utilisateur swipe gauche/droite sans liker :
+ *      → une ligne est ajoutée dans cette table
+ * - Le système exclut temporairement ces profils
+ *   dans les requêtes de découverte
+ * - Après expiration du délai :
+ *      → les profils redeviennent visibles automatiquement
+ *
+ * COLONNES :
+ *
+ * id
+ * - Identifiant unique du PASS
+ * - Généré automatiquement avec UUID
+ *
+ * passer_id
+ * - ID de l’utilisateur qui a ignoré le profil
+ * - Référence auth.users(id)
+ * - Suppression automatique si l’utilisateur est supprimé
+ *
+ * passed_id
+ * - ID du profil ignoré
+ * - Référence profiles(id)
+ * - Suppression automatique si le profil est supprimé
+ *
+ * created_at
+ * - Date et heure du PASS
+ * - Utilisé pour calculer l’expiration du délai
+ * - Valeur automatique : now()
+ */
+create table passes (
+  id uuid default gen_random_uuid() primary key,
+  passer_id uuid references auth.users(id) on delete cascade,
+  passed_id uuid references profiles(id) on delete cascade,
+  created_at timestamp with time zone default now()
+);
+
+
+
+/**
+ * @name Nettoyage automatique des anciens PASS
+ * @description
+ * Requête de maintenance destinée à supprimer automatiquement
+ * les anciens profils passés/ignorés stockés dans la table `passes`.
+ *
+ * OBJECTIF :
+ * - Éviter que la table `passes` grossisse inutilement
+ * - Améliorer les performances des requêtes de découverte
+ * - Supprimer les PASS devenus inutiles après un certain temps
+ *
+ * FONCTIONNEMENT :
+ * - Supprime tous les PASS datant de plus de 1 jour
+ * - Les profils redeviendront naturellement disponibles
+ *   avant cette suppression grâce au système des 10 minutes
+ *
+ * EXPLICATION :
+ *
+ * now()
+ * - Retourne la date/heure actuelle du serveur PostgreSQL
+ *
+ * interval '1 day'
+ * - Représente une durée de 24 heures
+ *
+ * now() - interval '1 day'
+ * - Calcule la date limite :
+ *   "il y a exactement 1 jour"
+ *
+ * created_at < now() - interval '1 day'
+ * - Sélectionne tous les PASS plus anciens que 24h
+ *
+ * UTILISATION :
+ * - Peut être exécuté automatiquement avec Supabase Cron
+ * - Recommandé : 1 exécution par jour
+ *
+ * EXEMPLE :
+ * - PASS créé le 24 Mai à 10h
+ * - Heure actuelle : 25 Mai à 11h
+ * → PASS supprimé automatiquement
+ */
+
+ 
+delete from passes
+where created_at < now() - interval '1 day';

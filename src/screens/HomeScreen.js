@@ -124,6 +124,15 @@ const HomeScreen = () => {
   const userLat = gpsLocation?.latitude || profile?.latitude || 48.8566;
   const userLng = gpsLocation?.longitude || profile?.longitude || 2.3522;
 
+  // MODIFICATION : Références pour les coordonnées afin de ne pas recréer fetchProfiles lors de variations GPS mineures
+  const userLatRef = useRef(userLat);
+  const userLngRef = useRef(userLng);
+
+  useEffect(() => {
+    userLatRef.current = userLat;
+    userLngRef.current = userLng;
+  }, [userLat, userLng]);
+
   // MODIFICATION : Coordonnées de déplacement XY pour le glissé tactile
   const pan = useRef(new Animated.ValueXY()).current;
 
@@ -155,34 +164,43 @@ const HomeScreen = () => {
       // Genre opposé
       const oppositeGender = profile.gender === 'MALE' ? 'FEMALE' : 'MALE';
 
-      // Récupérer les profils déjà likés pour les exclure
+      // Récupérer les profils déjà likés pour les exclure définitivement
       const { data: likedData } = await supabase
         .from('likes')
         .select('liked_id')
         .eq('liker_id', user.id);
       const likedIds = (likedData || []).map((l) => l.liked_id);
 
-      // Récupérer les profils du genre opposé (exclure ceux déjà likés)
+      // Récupérer les profils passés récemment (moins de 2 minutes) pour les exclure temporairement
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const { data: passedData } = await supabase
+        .from('passes')
+        .select('passed_id')
+        .eq('passer_id', user.id)
+        .gte('created_at', twoMinutesAgo);
+      const passedIds = (passedData || []).map((p) => p.passed_id);
+
+      // Récupérer les profils du genre opposé (exclure ceux déjà likés et passés récemment)
       let query = supabase
         .from('profiles')
         .select('*')
         .eq('gender', oppositeGender)
         .neq('id', user.id);
 
-      if (likedIds.length > 0) {
-        // Exclure les profils déjà likés
-        query = query.not('id', 'in', `(${likedIds.join(',')})`);
+      const excludedIds = Array.from(new Set([...likedIds, ...passedIds]));
+      if (excludedIds.length > 0) {
+        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
       }
 
       const { data, error } = await query.limit(50);
 
       if (error) throw error;
 
-      // MODIFICATION : Calculer la distance et le pays relatifs à la position GPS réelle
+      // MODIFICATION : Calculer la distance et le pays relatifs à la position GPS réelle (via refs stables)
       const profilesWithDistance = (data || []).map((p) => {
         const distance = haversineDistance(
-          userLat,
-          userLng,
+          userLatRef.current,
+          userLngRef.current,
           p.latitude,
           p.longitude
         );
@@ -194,10 +212,14 @@ const HomeScreen = () => {
         };
       });
 
-      // Trier par distance (plus proches en premier)
-      profilesWithDistance.sort((a, b) => a.distance - b.distance);
+      // MODIFICATION : Mélange aléatoire (Fisher-Yates) pour changer l'ordre d'affichage des profils
+      const shuffledProfiles = [...profilesWithDistance];
+      for (let i = shuffledProfiles.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledProfiles[i], shuffledProfiles[j]] = [shuffledProfiles[j], shuffledProfiles[i]];
+      }
 
-      setProfiles(profilesWithDistance);
+      setProfiles(shuffledProfiles);
       setCurrentIndex(0);
     } catch (error) {
       console.error('Erreur chargement profils:', error);
@@ -205,11 +227,25 @@ const HomeScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [profile, user, userLat, userLng]);
+  }, [profile, user]);
 
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
+
+  // Rafraîchissement automatique des profils toutes les minutes si la liste est vide (pour réafficher les profils après le délai de 10 min)
+  useEffect(() => {
+    let interval;
+    const isListEmpty = filteredProfiles.length - currentIndex <= 0;
+    if (isListEmpty && !loading) {
+      interval = setInterval(() => {
+        fetchProfiles();
+      }, 60000); // Réessaye toutes les 60 secondes
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [filteredProfiles.length, currentIndex, loading, fetchProfiles]);
 
   // Centrage et zoom automatique de la carte géographique lors du filtrage ou chargement des profils
   useEffect(() => {
@@ -343,7 +379,7 @@ const HomeScreen = () => {
 
   // MODIFICATION : Traitement de l'action de Like après swipe
   const handleLikeSwipe = async () => {
-    const currentProfile = profiles[currentIndex];
+    const currentProfile = filteredProfiles[currentIndex];
     if (!currentProfile) return;
 
     pan.setValue({ x: 0, y: 0 });
@@ -374,18 +410,30 @@ const HomeScreen = () => {
     }
   };
 
-  // MODIFICATION : Traitement de l'action de Pass après swipe
-  const handlePassSwipe = () => {
+  // MODIFICATION : Traitement de l'action de Pass après swipe (Enregistre le pass dans Supabase)
+  const handlePassSwipe = async () => {
+    const currentProfile = filteredProfiles[currentIndex];
     pan.setValue({ x: 0, y: 0 });
     setCurrentIndex((prev) => prev + 1);
+
+    if (currentProfile && user?.id) {
+      try {
+        await supabase.from('passes').insert({
+          passer_id: user.id,
+          passed_id: currentProfile.id,
+        });
+      } catch (error) {
+        console.error('Erreur enregistrement pass:', error);
+      }
+    }
   };
 
-  // MODIFICATION : Déclencheurs d'animation pour les clics boutons du bas
+  // MODIFICATION : Déclencheurs d'animation pour les clics boutons du bas (avec useNativeDriver: true pour la fluidité)
   const triggerLike = () => {
     Animated.timing(pan, {
       toValue: { x: width + 100, y: 0 },
       duration: 250,
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start(() => {
       handleLikeSwipe();
     });
@@ -395,7 +443,7 @@ const HomeScreen = () => {
     Animated.timing(pan, {
       toValue: { x: -width - 100, y: 0 },
       duration: 250,
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start(() => {
       handlePassSwipe();
     });
@@ -454,11 +502,11 @@ const HomeScreen = () => {
       ),
       onPanResponderRelease: (e, gestureState) => {
         if (gestureState.dx > 120) {
-          // MODIFICATION : Glissement vers la droite est désormais un PASS (Suivant)
+          // MODIFICATION : Glissement vers la droite est désormais un PASS (Suivant) (avec useNativeDriver: true)
           Animated.timing(pan, {
             toValue: { x: width + 100, y: gestureState.dy },
             duration: 200,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start(() => {
             handlePassSwipe();
           });
@@ -467,7 +515,7 @@ const HomeScreen = () => {
           Animated.timing(pan, {
             toValue: { x: -width - 100, y: gestureState.dy },
             duration: 200,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start(() => {
             handlePassSwipe();
           });
@@ -476,7 +524,7 @@ const HomeScreen = () => {
           Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
             friction: 4,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start();
         }
       },
@@ -681,10 +729,12 @@ const HomeScreen = () => {
             <Ionicons name="heart-dislike-outline" size={80} color={COLORS.gray} />
             <Text style={styles.emptyTitle}>Plus de profils</Text>
             <Text style={styles.emptyText}>Essayez de modifier vos filtres ou revenez plus tard.</Text>
+            {/* MODIFICATION : Masqué car le rafraîchissement se fait automatiquement après 10 minutes
             <TouchableOpacity style={styles.refreshBtn} onPress={fetchProfiles}>
               <Ionicons name="refresh" size={20} color={COLORS.white} />
               <Text style={styles.refreshText}>Actualiser</Text>
             </TouchableOpacity>
+            */}
           </View>
         ) : (
           <View style={styles.cardContainer}>
