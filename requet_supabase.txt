@@ -48,7 +48,6 @@ create table passes (
 );
 
 
-
 /**
  * @name Nettoyage automatique des anciens PASS
  * @description
@@ -90,6 +89,6 @@ create table passes (
  * → PASS supprimé automatiquement
  */
 
- 
+
 delete from passes
 where created_at < now() - interval '1 day';
