@@ -86,6 +86,7 @@ const HomeScreen = () => {
   // AJOUT : États et Refs pour la micro-animation des petits cœurs qui s'envolent
   const [flyingHearts, setFlyingHearts] = useState([]);
   const likeBtnScale = useRef(new Animated.Value(1)).current;
+  const mapRef = useRef(null); // AJOUT : Ref de la carte géographique interactive
 
   /**
    * @name spawnHearts
@@ -209,6 +210,79 @@ const HomeScreen = () => {
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
+
+  // Centrage et zoom automatique de la carte géographique lors du filtrage
+  useEffect(() => {
+    if (viewMode !== 'map' || !mapRef.current) return;
+
+    let targetLat = userLat;
+    let targetLng = userLng;
+    let latDelta = 0.08;
+    let lngDelta = 0.04;
+
+    if (activeFilterType === 'country' && selectedCountry !== 'all') {
+      // Coordonnées de centrage par pays/territoire
+      if (selectedCountry === 'France') {
+        targetLat = 46.2276;
+        targetLng = 2.2137;
+        latDelta = 8.0;
+        lngDelta = 8.0;
+      } else if (selectedCountry === 'La Réunion') {
+        targetLat = -21.1151;
+        targetLng = 55.5364;
+        latDelta = 0.5;
+        lngDelta = 0.5;
+      } else if (selectedCountry === 'Madagascar') {
+        targetLat = -18.7669;
+        targetLng = 46.8691;
+        latDelta = 9.0;
+        lngDelta = 9.0;
+      } else if (selectedCountry === 'Seychelles') {
+        targetLat = -4.6796;
+        targetLng = 55.4920;
+        latDelta = 0.6;
+        lngDelta = 0.6;
+      } else if (selectedCountry === 'Mayotte') {
+        targetLat = -12.8275;
+        targetLng = 45.1662;
+        latDelta = 0.3;
+        lngDelta = 0.3;
+      }
+    } else {
+      // Par distance : recentre sur la position de l'utilisateur
+      targetLat = userLat;
+      targetLng = userLng;
+
+      // Ajuster le niveau de zoom selon la tranche de distance sélectionnée pour un affichage optimal
+      if (selectedDistanceRange === '0-400') {
+        latDelta = 4.5;
+        lngDelta = 4.5;
+      } else if (selectedDistanceRange === '401-1000') {
+        latDelta = 10.0;
+        lngDelta = 10.0;
+      } else if (selectedDistanceRange === '1001-3000') {
+        latDelta = 25.0;
+        lngDelta = 25.0;
+      } else if (selectedDistanceRange === '3001-5000') {
+        latDelta = 40.0;
+        lngDelta = 40.0;
+      } else if (selectedDistanceRange === '5000+') {
+        latDelta = 80.0;
+        lngDelta = 80.0;
+      } else {
+        // 'all' : zoom par défaut
+        latDelta = 0.08;
+        lngDelta = 0.04;
+      }
+    }
+
+    mapRef.current.animateToRegion({
+      latitude: targetLat,
+      longitude: targetLng,
+      latitudeDelta: latDelta,
+      longitudeDelta: lngDelta,
+    }, 1000); // 1 seconde de transition fluide premium !
+  }, [selectedCountry, selectedDistanceRange, activeFilterType, viewMode, userLat, userLng]);
 
   // MODIFICATION : Interpollation de la rotation 3D de la carte Tinder
   const rotate = pan.x.interpolate({
@@ -664,6 +738,7 @@ const HomeScreen = () => {
         /* AJOUT : Carte Google/Apple Maps interactive avec profils géolocalisés */
         <View style={styles.mapContainer}>
           <MapView
+            ref={mapRef}
             style={styles.map}
             initialRegion={mapRegion}
             showsUserLocation={false}
