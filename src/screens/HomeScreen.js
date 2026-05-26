@@ -211,9 +211,30 @@ const HomeScreen = () => {
     fetchProfiles();
   }, [fetchProfiles]);
 
-  // Centrage et zoom automatique de la carte géographique lors du filtrage
+  // Centrage et zoom automatique de la carte géographique lors du filtrage ou chargement des profils
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current) return;
+
+    // Si on sélectionne "Tous pays" ou "Toutes distances", on fait un zoom out intelligent (fitToCoordinates) pour inclure tous les profils + l'utilisateur
+    const isAllCountry = activeFilterType === 'country' && selectedCountry === 'all';
+    const isAllDistance = activeFilterType === 'distance' && selectedDistanceRange === 'all';
+
+    if (isAllCountry || isAllDistance) {
+      const coords = [
+        { latitude: userLat, longitude: userLng },
+        ...filteredProfiles
+          .filter((p) => p.latitude && p.longitude)
+          .map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
+      ];
+
+      if (coords.length > 1) {
+        mapRef.current.fitToCoordinates(coords, {
+          edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+          animated: true,
+        });
+        return;
+      }
+    }
 
     let targetLat = userLat;
     let targetLng = userLng;
@@ -270,7 +291,7 @@ const HomeScreen = () => {
         latDelta = 80.0;
         lngDelta = 80.0;
       } else {
-        // 'all' : zoom par défaut
+        // 'all' s'il n'y a pas d'autres profils : zoom par défaut
         latDelta = 0.08;
         lngDelta = 0.04;
       }
@@ -282,7 +303,15 @@ const HomeScreen = () => {
       latitudeDelta: latDelta,
       longitudeDelta: lngDelta,
     }, 1000); // 1 seconde de transition fluide premium !
-  }, [selectedCountry, selectedDistanceRange, activeFilterType, viewMode, userLat, userLng]);
+  }, [
+    selectedCountry,
+    selectedDistanceRange,
+    activeFilterType,
+    viewMode,
+    userLat,
+    userLng,
+    filteredProfiles,
+  ]);
 
   // MODIFICATION : Interpollation de la rotation 3D de la carte Tinder
   const rotate = pan.x.interpolate({
