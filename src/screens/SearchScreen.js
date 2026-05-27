@@ -204,7 +204,7 @@ const SearchScreen = ({ navigation }) => {
           <View style={styles.filterRow}>
             <Text style={styles.filterLabel}>Distance max: {maxDistance} km</Text>
             <View style={styles.distanceBtns}>
-              {[10, 25, 50, 100, 200].map((d) => (
+              {[1000, 2500, 5000, 10000, 20000].map((d) => (
                 <TouchableOpacity
                   key={d}
                   style={[
