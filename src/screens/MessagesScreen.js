@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS } from '../utils/constants';
 import useMessages from '../hooks/useMessages';
+import SkeletonMessages from '../components/SkeletonMessages';
 
 const MessagesScreen = ({ navigation }) => {
   const { conversations, loading, fetchConversations } = useMessages();
@@ -119,9 +120,7 @@ const MessagesScreen = ({ navigation }) => {
 
       {/* Liste des conversations */}
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <SkeletonMessages />
       ) : (
         <FlatList
           data={conversations}

@@ -18,6 +18,7 @@ import { COLORS } from '../utils/constants';
 import { haversineDistance, calculateAge, formatDistance } from '../utils/helpers';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
+import SkeletonSearch from '../components/SkeletonSearch';
 
 const SearchScreen = ({ navigation }) => {
   const { user, profile } = useAuthStore();
@@ -247,9 +248,7 @@ const SearchScreen = ({ navigation }) => {
       </Text>
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <SkeletonSearch />
       ) : (
         <FlatList
           data={filteredProfiles}

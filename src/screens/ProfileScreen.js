@@ -23,6 +23,7 @@ import useAuthStore from '../store/authStore';
 import useSubscriptionStore from '../store/subscriptionStore';
 import Input from '../components/Input';
 import Button from '../components/Button';
+import SkeletonPhotos from '../components/SkeletonPhotos';
 
 const ProfileScreen = ({ navigation }) => {
   const { user, profile, logout, updateProfile } = useAuthStore();
@@ -437,27 +438,33 @@ const ProfileScreen = ({ navigation }) => {
       <View style={styles.photosSection}>
         <Text style={styles.sectionTitle}>Photos ({photos.length}/6)</Text>
         <View style={styles.photosGrid}>
-          {photos.map((photo) => (
-            <TouchableOpacity
-              key={photo.id}
-              style={styles.photoItem}
-              onPress={() => setSelectedPhoto(photo)}
-            >
-              <Image source={{ uri: photo.url }} style={styles.photo} />
-              {photo.is_profile && (
-                <View style={styles.profileBadge}>
-                  <Text style={styles.profileBadgeText}>Profil</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+          {loadingPhotos ? (
+            <SkeletonPhotos />
+          ) : (
+            <>
+              {photos.map((photo) => (
+                <TouchableOpacity
+                  key={photo.id}
+                  style={styles.photoItem}
+                  onPress={() => setSelectedPhoto(photo)}
+                >
+                  <Image source={{ uri: photo.url }} style={styles.photo} />
+                  {photo.is_profile && (
+                    <View style={styles.profileBadge}>
+                      <Text style={styles.profileBadgeText}>Profil</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
 
-          {/* Bouton ajouter */}
-          {photos.length < 6 && (
-            <TouchableOpacity style={styles.addPhotoBtn} onPress={handleAddPhoto}>
-              <Ionicons name="add" size={32} color={COLORS.primary} />
-              <Text style={styles.addPhotoText}>Ajouter</Text>
-            </TouchableOpacity>
+              {/* Bouton ajouter */}
+              {photos.length < 6 && (
+                <TouchableOpacity style={styles.addPhotoBtn} onPress={handleAddPhoto}>
+                  <Ionicons name="add" size={32} color={COLORS.primary} />
+                  <Text style={styles.addPhotoText}>Ajouter</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
         </View>
         <Text style={styles.photoHint}>Appuyez sur une photo pour l'agrandir ou la supprimer</Text>
