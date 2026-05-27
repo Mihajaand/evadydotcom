@@ -13,6 +13,12 @@ const useMessageStore = create((set, get) => ({
   dailyCount: 0,          // Compteur de messages du jour
   unreadTotal: 0,         // Total des messages non lus
   loading: false,
+  activePartnerId: null,  // AJOUT : ID du partenaire de chat actif pour éviter le mélange de messages
+
+  /**
+   * AJOUT : Définit l'interlocuteur actif
+   */
+  setActivePartnerId: (partnerId) => set({ activePartnerId: partnerId }),
 
   /**
    * Récupère la liste des conversations de l'utilisateur
@@ -86,7 +92,7 @@ const useMessageStore = create((set, get) => ({
 
     if (error) throw error;
 
-    // Marquer les messages reçus comme lus
+    // Marquer les messages reçus comme lus immédiatement
     await supabase
       .from('messages')
       .update({ is_read: true })
@@ -159,25 +165,70 @@ const useMessageStore = create((set, get) => ({
   },
 
   /**
-   * Abonne aux nouveaux messages en temps réel
+   * MODIFICATION : Abonne aux nouveaux messages en temps réel (souscription globale intelligente)
    */
   subscribeToMessages: (userId) => {
     const channel = supabase
-      .channel('messages-realtime')
+      .channel(`global-chat-sync-${userId}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*', // Écoute tous les événements (INSERT, UPDATE) pour une synchronisation totale
           schema: 'public',
           table: 'messages',
-          filter: `receiver_id=eq.${userId}`,
         },
-        (payload) => {
-          // Ajouter le message s'il fait partie de la conversation active
-          set((state) => ({
-            currentMessages: [...state.currentMessages, payload.new],
-            unreadTotal: state.unreadTotal + 1,
-          }));
+        async (payload) => {
+          const activePartnerId = get().activePartnerId;
+
+          // --- CAS 1 : NOUVEAU MESSAGE INSÉRÉ ---
+          if (payload.eventType === 'INSERT') {
+            const newMessage = payload.new;
+
+            // Si le message me concerne (envoyé ou reçu)
+            if (newMessage.sender_id === userId || newMessage.receiver_id === userId) {
+              // 1. Rafraîchir instantanément la liste des conversations en arrière-plan
+              get().fetchConversations(userId);
+
+              // 2. Si c'est un message REÇU
+              if (newMessage.receiver_id === userId) {
+                // Si la conversation est ouverte avec cet expéditeur, on ajoute le message
+                if (activePartnerId === newMessage.sender_id) {
+                  set((state) => ({
+                    currentMessages: [...state.currentMessages, newMessage],
+                  }));
+
+                  // Marquer automatiquement le message comme lu en base de données
+                  await supabase
+                    .from('messages')
+                    .update({ is_read: true })
+                    .eq('id', newMessage.id);
+                } else {
+                  // Sinon, on incrémente uniquement le compteur de non-lus global
+                  set((state) => ({
+                    unreadTotal: state.unreadTotal + 1,
+                  }));
+                }
+              }
+            }
+          }
+
+          // --- CAS 2 : MESSAGE MIS À JOUR (ex: double coche de lecture ✓✓) ---
+          if (payload.eventType === 'UPDATE') {
+            const updatedMessage = payload.new;
+
+            if (updatedMessage.sender_id === userId || updatedMessage.receiver_id === userId) {
+              // Mettre à jour l'état local si la conversation est active pour afficher ✓✓
+              if (activePartnerId === updatedMessage.sender_id || activePartnerId === updatedMessage.receiver_id) {
+                set((state) => ({
+                  currentMessages: state.currentMessages.map((msg) =>
+                    msg.id === updatedMessage.id ? updatedMessage : msg
+                  ),
+                }));
+              }
+              // Rafraîchir les conversations pour mettre à jour les badges
+              get().fetchConversations(userId);
+            }
+          }
         }
       )
       .subscribe();

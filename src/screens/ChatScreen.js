@@ -31,7 +31,7 @@ const ChatScreen = ({ route, navigation }) => {
   const { partnerId, partnerName, partnerAvatar, partnerGender } = route.params;
 
   const { user, profile } = useAuthStore();
-  const { currentMessages, fetchMessages, sendMessage, dailyCount, fetchDailyCount, clearCurrentMessages } = useMessageStore();
+  const { currentMessages, fetchMessages, sendMessage, dailyCount, fetchDailyCount, clearCurrentMessages, setActivePartnerId } = useMessageStore();
   const { subscription } = useSubscriptionStore();
 
   const [inputText, setInputText] = useState('');
@@ -63,29 +63,15 @@ const ChatScreen = ({ route, navigation }) => {
     loadMessages();
     fetchDailyCount();
 
-    // Abonnement temps réel
-    const channel = supabase
-      .channel(`chat-${partnerId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `sender_id=eq.${partnerId}`,
-        },
-        (payload) => {
-          if (payload.new.receiver_id === user.id) {
-            useMessageStore.setState((state) => ({
-              currentMessages: [...state.currentMessages, payload.new],
-            }));
-          }
-        }
-      )
-      .subscribe();
+    // MODIFICATION : Définir ce partenaire comme la conversation active dans le store
+    setActivePartnerId(partnerId);
+
+    // Note : L'abonnement temps réel global (dans MessagesScreen) s'occupe déjà d'écouter
+    // et d'ajouter les nouveaux messages au store currentMessages sans doublon ni pollution.
 
     return () => {
-      supabase.removeChannel(channel);
+      // MODIFICATION : Réinitialiser au démontage
+      setActivePartnerId(null);
       clearCurrentMessages();
     };
   }, [partnerId]);
