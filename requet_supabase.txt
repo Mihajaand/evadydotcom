@@ -92,3 +92,28 @@ create table passes (
 
 delete from passes
 where created_at < now() - interval '1 day';
+
+
+/**
+ * RÈGLES DE SÉCURITÉ (RLS) POUR LA TABLE `passes`
+ *
+ * Par défaut, les nouvelles tables dans Supabase ont la sécurité RLS activée.
+ * Sans règles d'accès explicites, toutes les opérations (INSERT, SELECT...) échouent.
+ *
+ * Exécutez les requêtes SQL ci-dessous dans l'éditeur SQL de votre console Supabase :
+ */
+
+-- 1. Activer RLS sur la table
+alter table passes enable row level security;
+
+-- 2. Autoriser la lecture des passes uniquement pour l'utilisateur concerné
+create policy "Autoriser la lecture de ses propres passes"
+on passes for select
+to authenticated
+using (auth.uid() = passer_id);
+
+-- 3. Autoriser l'insertion des passes uniquement par l'utilisateur concerné
+create policy "Autoriser la création de ses propres passes"
+on passes for insert
+to authenticated
+with check (auth.uid() = passer_id);

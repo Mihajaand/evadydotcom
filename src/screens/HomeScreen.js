@@ -28,6 +28,7 @@ import { haversineDistance, calculateAge, formatDistance, getCountryFromCoords }
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import ProfileCard from '../components/ProfileCard';
+import SkeletonCard from '../components/SkeletonCard';
 import useLocation from '../hooks/useLocation'; // MODIFICATION : Import du hook GPS
 
 const { width } = Dimensions.get('window');
@@ -44,12 +45,7 @@ const HomeScreen = () => {
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [activeFilterType, setActiveFilterType] = useState('distance'); // 'distance' ou 'country'
 
-  // Réinitialiser l'index courant à 0 lorsque les filtres changent pour éviter les erreurs hors-limites
-  useEffect(() => {
-    setCurrentIndex(0);
-  }, [selectedDistanceRange, selectedCountry]);
-
-  // Filtrage des profils selon la distance et le pays sélectionnés
+  // Filtrage des profils selon la distance et le pays
   const filteredProfiles = profiles.filter((p) => {
     // 1. Filtre par tranche de distance
     let matchesDistance = true;
@@ -76,6 +72,21 @@ const HomeScreen = () => {
 
     return matchesDistance && matchesCountry;
   });
+
+  // Clamping de currentIndex si la liste filtrée change de taille et devient plus petite
+  useEffect(() => {
+    if (filteredProfiles.length > 0 && currentIndex >= filteredProfiles.length) {
+      setCurrentIndex(filteredProfiles.length - 1);
+    } else if (filteredProfiles.length === 0 && currentIndex !== 0) {
+      setCurrentIndex(0);
+    }
+  }, [filteredProfiles.length, currentIndex]);
+
+  // Réinitialiser l'index courant à 0 lorsque les filtres changent pour éviter les erreurs hors-limites
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [selectedDistanceRange, selectedCountry]);
+
 
   /**
    * @name currentProfile
@@ -155,6 +166,13 @@ const HomeScreen = () => {
 
   // MODIFICATION : Coordonnées de déplacement XY pour le glissé tactile
   const pan = useRef(new Animated.ValueXY()).current;
+  const handlePassSwipeRef = useRef();
+  const handleLikeSwipeRef = useRef();
+
+  useEffect(() => {
+    handlePassSwipeRef.current = handlePassSwipe;
+    handleLikeSwipeRef.current = handleLikeSwipe;
+  });
 
   // MODIFICATION : Synchronise les coordonnées GPS réelles de l'utilisateur dans Supabase
   useEffect(() => {
@@ -176,10 +194,12 @@ const HomeScreen = () => {
    * Récupère les profils du genre opposé
    * RÈGLE CRITIQUE: Hommes voient UNIQUEMENT les femmes et vice versa
    */
-  const fetchProfiles = useCallback(async () => {
+  const fetchProfiles = useCallback(async (isSilent = false) => {
     if (!profile) return;
 
-    setLoading(true);
+    if (!isSilent) {
+      setLoading(true);
+    }
     try {
       // Genre opposé
       const oppositeGender = profile.gender === 'MALE' ? 'FEMALE' : 'MALE';
@@ -245,27 +265,32 @@ const HomeScreen = () => {
       console.error('Erreur chargement profils:', error);
       Alert.alert('Erreur', 'Impossible de charger les profils');
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, [profile, user]);
 
   useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
+    if (viewMode === 'card') {
+      fetchProfiles();
+    }
+  }, [viewMode, fetchProfiles]);
 
-  // Rafraîchissement automatique des profils toutes les minutes si la liste est vide (pour réafficher les profils après le délai de 10 min)
+
+  // Rafraîchissement automatique des profils toutes les minutes si la liste est vide (pour réafficher les profils après le délai de 2 min / 10 min)
   useEffect(() => {
     let interval;
-    const isListEmpty = filteredProfiles.length - currentIndex <= 0;
+    const isListEmpty = filteredProfiles.length <= 0;
     if (isListEmpty && !loading) {
       interval = setInterval(() => {
-        fetchProfiles();
+        fetchProfiles(true); // Requête silencieuse en arrière-plan
       }, 60000); // Réessaye toutes les 60 secondes
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [filteredProfiles.length, currentIndex, loading, fetchProfiles]);
+  }, [filteredProfiles.length, loading, fetchProfiles]);
 
   // Centrage et zoom automatique de la carte géographique lors du filtrage ou chargement des profils
   useEffect(() => {
@@ -429,27 +454,35 @@ const HomeScreen = () => {
     if (!currentProfile) return;
 
     isTransitioning.current = true;
-    // Transition fluide : on attend un court instant avant de réinitialiser la position et passer au profil suivant
+    // Transition fluide : on attend un court instant avant de réinitialiser la position et exclure le profil de l'état
     setTimeout(() => {
       pan.setValue({ x: 0, y: 0 });
-      setCurrentIndex((prev) => prev + 1);
+      setProfiles((prev) => prev.filter((p) => p.id !== currentProfile.id));
       isTransitioning.current = false;
     }, 250);
 
     try {
       // Enregistrer le like
-      await supabase.from('likes').insert({
+      const { error: likeError } = await supabase.from('likes').insert({
         liker_id: user.id,
         liked_id: currentProfile.id,
       });
 
+      if (likeError) {
+        console.error('Erreur enregistrement like (Supabase RLS/DB):', likeError);
+      }
+
       // Vérifier le match mutuel
-      const { data: mutualLike } = await supabase
+      const { data: mutualLike, error: mutualError } = await supabase
         .from('likes')
         .select('id')
         .eq('liker_id', currentProfile.id)
         .eq('liked_id', user.id)
         .single();
+
+      if (mutualError && !mutualError.message?.includes('JSON object')) {
+        console.error('Erreur verification match (Supabase):', mutualError);
+      }
 
       if (mutualLike) {
         // Envoi automatique d'un message de bienvenue lors du match
@@ -467,9 +500,7 @@ const HomeScreen = () => {
         Alert.alert('💕 C\'est un Match !', `Vous et ${currentProfile.full_name} vous aimez mutuellement ! Un message automatique vous a été envoyé.`);
       }
     } catch (error) {
-      if (!error.message?.includes('duplicate')) {
-        console.error('Erreur like:', error);
-      }
+      console.error('Erreur globale like (catch):', error);
     }
   };
 
@@ -478,23 +509,29 @@ const HomeScreen = () => {
     const currentProfile = filteredProfiles[currentIndex];
     
     isTransitioning.current = true;
-    // Transition fluide : on attend un court instant avant de réinitialiser la position et passer au profil suivant
+    // Transition fluide : on attend un court instant avant de réinitialiser la position et exclure le profil de l'état
     setTimeout(() => {
       pan.setValue({ x: 0, y: 0 });
-      setCurrentIndex((prev) => prev + 1);
+      if (currentProfile) {
+        setProfiles((prev) => prev.filter((p) => p.id !== currentProfile.id));
+      }
       isTransitioning.current = false;
     }, 250);
 
     if (currentProfile && user?.id) {
       try {
-        await supabase.from('passes').insert({
+        const { error: passError } = await supabase.from('passes').insert({
           passer_id: user.id,
           passed_id: currentProfile.id,
         });
+        if (passError) {
+          console.error('Erreur enregistrement pass (Supabase RLS/DB):', passError);
+        }
       } catch (error) {
-        console.error('Erreur enregistrement pass:', error);
+        console.error('Erreur enregistrement pass (catch):', error);
       }
     }
+
   };
 
   // MODIFICATION : Déclencheurs d'animation pour les clics boutons du bas (avec useNativeDriver: true pour la fluidité)
@@ -504,7 +541,7 @@ const HomeScreen = () => {
       duration: 250,
       useNativeDriver: true,
     }).start(() => {
-      handleLikeSwipe();
+      handleLikeSwipeRef.current?.();
     });
   };
 
@@ -514,7 +551,7 @@ const HomeScreen = () => {
       duration: 250,
       useNativeDriver: true,
     }).start(() => {
-      handlePassSwipe();
+      handlePassSwipeRef.current?.();
     });
   };
 
@@ -588,7 +625,7 @@ const HomeScreen = () => {
             duration: 250,
             useNativeDriver: true,
           }).start(() => {
-            handlePassSwipe();
+            handlePassSwipeRef.current?.();
           });
         } else if (isSwiped && gestureState.dx < 0) {
           // Glissement vers la gauche
@@ -598,7 +635,7 @@ const HomeScreen = () => {
             duration: 250,
             useNativeDriver: true,
           }).start(() => {
-            handlePassSwipe();
+            handlePassSwipeRef.current?.();
           });
         } else {
           // Retour au centre s'il n'y a pas assez de glissement (ressort plus doux)
@@ -644,14 +681,31 @@ const HomeScreen = () => {
 
   /**
    * @name loadingOverlay
-   * @description Jdoc: Rendu de l'écran de chargement plein écran translucide premium.
-   * Se superpose à toute l'application avec un effet de fond opaque et transparent agréable.
+   * @description Jdoc: Rendu de l'écran de chargement avec un Skeleton Card moderne et premium.
    **/
   if (isDataLoading) {
     return (
-      <View style={styles.loadingOverlay}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingOverlayText}>Recherche de profils à proximité...</Text>
+      <View style={styles.container}>
+        {/* En-tête de chargement */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Découvrir</Text>
+          <Text style={styles.headerCount}>...</Text>
+        </View>
+
+        {/* Sélecteur de mode de vue factice */}
+        <View style={styles.toggleContainer}>
+          <View style={[styles.toggleBtn, styles.toggleActive, { backgroundColor: '#E0E0E0' }]}>
+            <Text style={[styles.toggleText, { color: '#A0A0A0' }]}>Découverte</Text>
+          </View>
+          <View style={styles.toggleBtn}>
+            <Text style={styles.toggleText}>Carte</Text>
+          </View>
+        </View>
+
+        {/* Carte squelette animée */}
+        <View style={styles.cardContainer}>
+          <SkeletonCard />
+        </View>
       </View>
     );
   }
@@ -822,7 +876,10 @@ const HomeScreen = () => {
           <View style={styles.cardContainer}>
             {/* AJOUT : Carte du dessous (prochain profil en 3D deck) animée pour une transition premium */}
             {currentIndex + 1 < filteredProfiles.length && (
-              <Animated.View style={[styles.cardUnderneath, animatedUnderneathStyle]}>
+              <Animated.View 
+                key={filteredProfiles[currentIndex + 1].id}
+                style={[styles.cardUnderneath, animatedUnderneathStyle]}
+              >
                 <ProfileCard
                   profile={filteredProfiles[currentIndex + 1]}
                   distance={filteredProfiles[currentIndex + 1].distance}
@@ -832,6 +889,7 @@ const HomeScreen = () => {
 
             {/* Carte principale (au dessus) avec gestionnaires PanResponder */}
             <Animated.View
+              key={currentProfile.id}
               {...panResponder.panHandlers}
               style={[animatedCardStyle, styles.cardTop]}
             >
@@ -839,6 +897,7 @@ const HomeScreen = () => {
                 profile={currentProfile}
                 distance={currentProfile.distance}
               />
+
 
               {/**
                * @name likeBtnContainer
