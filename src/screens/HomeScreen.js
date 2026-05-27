@@ -485,16 +485,19 @@ const HomeScreen = () => {
       }
 
       if (mutualLike) {
-        // Envoi automatique d'un message de bienvenue lors du match
+        // Envoi automatique d'un message de bienvenue lors du match (expéditeur : user.id, destinataire : currentProfile.id)
         try {
-          await supabase.from('messages').insert({
-            sender_id: currentProfile.id,
-            receiver_id: user.id,
+          const { error: welcomeMsgError } = await supabase.from('messages').insert({
+            sender_id: user.id,
+            receiver_id: currentProfile.id,
             content: `Coucou ! Nous avons matché ! 😊 Comment vas-tu ?`,
             is_read: false,
           });
+          if (welcomeMsgError) {
+            console.error("Erreur d'envoi du message de match automatique (Supabase):", welcomeMsgError);
+          }
         } catch (msgErr) {
-          console.error("Erreur d'envoi du message de match automatique:", msgErr);
+          console.error("Erreur d'envoi du message de match automatique (catch):", msgErr);
         }
 
         Alert.alert('💕 C\'est un Match !', `Vous et ${currentProfile.full_name} vous aimez mutuellement ! Un message automatique vous a été envoyé.`);

@@ -5,9 +5,11 @@
 import { useEffect } from 'react';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
+import useMessageStore from '../store/messageStore';
 
 const useAuth = () => {
   const { user, profile, loading, initialize, setUser, fetchProfile, setLoading } = useAuthStore();
+  const { subscribeToMessages } = useMessageStore();
 
   useEffect(() => {
     // Initialiser la session au montage
@@ -35,9 +37,20 @@ const useAuth = () => {
     };
   }, []);
 
+  // Abonnement global aux messages en temps réel pour synchronisation complète dans toute l'application
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const unsubscribe = subscribeToMessages(user.id);
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id, subscribeToMessages]);
+
   return { user, profile, loading };
 };
 
 export default useAuth;
+
 
 

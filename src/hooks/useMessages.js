@@ -18,7 +18,6 @@ const useMessages = () => {
     fetchMessages,
     sendMessage,
     fetchDailyCount,
-    subscribeToMessages,
     clearCurrentMessages,
   } = useMessageStore();
 
@@ -28,13 +27,6 @@ const useMessages = () => {
     // Charger les conversations et le compteur
     fetchConversations(user.id);
     fetchDailyCount(user.id);
-
-    // S'abonner aux messages en temps réel
-    const unsubscribe = subscribeToMessages(user.id);
-
-    return () => {
-      unsubscribe();
-    };
   }, [user?.id]);
 
   return {
