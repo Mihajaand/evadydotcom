@@ -37,6 +37,16 @@ const ProfileCard = ({ profile, distance }) => {
         resizeMode="cover"
       />
 
+      {/* Badge Abonnement Homme (top right) */}
+      {profile.gender === 'MALE' && (
+        <View style={[styles.subBadge, styles[`subBadge_${profile.subscriptionTier || 'free'}`]]}>
+          <Ionicons name="sparkles" size={12} color={COLORS.white} style={{ marginRight: 4 }} />
+          <Text style={styles.subBadgeText}>
+            {(profile.subscriptionTier || 'free').toUpperCase()}
+          </Text>
+        </View>
+      )}
+
       {/* Overlay dégradé en bas */}
       <View style={styles.overlay}>
         {/* Badge en ligne */}
@@ -151,6 +161,40 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.4)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+  },
+  subBadge: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    zIndex: 99,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 4,
+  },
+  subBadge_free: {
+    backgroundColor: '#7E8A96',
+  },
+  subBadge_basic: {
+    backgroundColor: '#3b82f6',
+  },
+  subBadge_premium: {
+    backgroundColor: COLORS.primary,
+  },
+  subBadge_vip: {
+    backgroundColor: '#D4AF37',
+  },
+  subBadgeText: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 });
 

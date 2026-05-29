@@ -108,13 +108,15 @@ const useMessageStore = create((set, get) => ({
    * Envoie un message
    * Vérifie le compteur quotidien avant l'envoi
    */
-  sendMessage: async (senderId, receiverId, content, subscriptionTier = 'free') => {
-    // Vérifier la limite quotidienne
-    const limit = MESSAGE_LIMITS[subscriptionTier] || MESSAGE_LIMITS.free;
+  sendMessage: async (senderId, receiverId, content, subscriptionTier = 'free', isFemale = false) => {
     const currentCount = get().dailyCount;
 
-    if (currentCount >= limit) {
-      throw new Error(`Limite de ${limit} messages/jour atteinte. Passez à un abonnement supérieur.`);
+    // Vérifier la limite quotidienne uniquement pour les profils Homme
+    if (!isFemale) {
+      const limit = MESSAGE_LIMITS[subscriptionTier] || MESSAGE_LIMITS.free;
+      if (currentCount >= limit) {
+        throw new Error(`Limite de ${limit} messages/jour atteinte. Passez à un abonnement supérieur.`);
+      }
     }
 
     // Insérer le message
@@ -130,18 +132,22 @@ const useMessageStore = create((set, get) => ({
 
     if (error) throw error;
 
-    // Mettre à jour le compteur quotidien
-    const today = new Date().toISOString().split('T')[0];
-    await supabase.from('daily_message_counts').upsert({
-      user_id: senderId,
-      count_date: today,
-      message_count: currentCount + 1,
-    });
+    // Mettre à jour le compteur quotidien uniquement pour les profils Homme
+    if (!isFemale) {
+      const today = new Date().toISOString().split('T')[0];
+      await supabase.from('daily_message_counts').upsert({
+        user_id: senderId,
+        count_date: today,
+        message_count: currentCount + 1,
+      });
 
-    // Mettre à jour l'état local
+      // Mettre à jour l'état local du compteur
+      set({ dailyCount: currentCount + 1 });
+    }
+
+    // Mettre à jour l'état local des messages
     set((state) => ({
       currentMessages: [...state.currentMessages, data],
-      dailyCount: currentCount + 1,
     }));
 
     return data;

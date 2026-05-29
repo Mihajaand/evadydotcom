@@ -385,20 +385,22 @@ const ProfileScreen = ({ navigation }) => {
           {profile?.gender === 'MALE' ? '👨 Homme' : '👩 Femme'}
         </Text>
 
-        {/* Badge abonnement */}
-        <TouchableOpacity
-          style={[
-            styles.subBadge,
-            subscription?.tier === 'vip' && styles.subBadgeVip,
-            subscription?.tier === 'premium' && styles.subBadgePremium,
-          ]}
-          onPress={() => navigation.navigate('Subscription')}
-        >
-          <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
-          <Text style={styles.subBadgeText}>
-            {tierLabel[subscription?.tier] || 'Gratuit'}
-          </Text>
-        </TouchableOpacity>
+        {/* Badge abonnement (Homme uniquement) */}
+        {profile?.gender === 'MALE' && (
+          <TouchableOpacity
+            style={[
+              styles.subBadge,
+              subscription?.tier === 'vip' && styles.subBadgeVip,
+              subscription?.tier === 'premium' && styles.subBadgePremium,
+            ]}
+            onPress={() => navigation.navigate('Subscription')}
+          >
+            <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
+            <Text style={styles.subBadgeText}>
+              {tierLabel[subscription?.tier] || 'Gratuit'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Mode édition */}
@@ -519,17 +521,19 @@ const ProfileScreen = ({ navigation }) => {
 
       {/* Actions */}
       <View style={styles.actionsSection}>
-        {/* Abonnement */}
-        <TouchableOpacity
-          style={styles.actionRow}
-          onPress={() => navigation.navigate('Subscription')}
-        >
-          <View style={styles.actionLeft}>
-            <Ionicons name="diamond-outline" size={22} color={COLORS.primary} />
-            <Text style={styles.actionText}>Mon abonnement</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-        </TouchableOpacity>
+        {/* Abonnement (Homme uniquement) */}
+        {profile?.gender === 'MALE' && (
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => navigation.navigate('Subscription')}
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="diamond-outline" size={22} color={COLORS.primary} />
+              <Text style={styles.actionText}>Mon abonnement</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+          </TouchableOpacity>
+        )}
 
         {/* Déconnexion */}
         <TouchableOpacity style={styles.actionRow} onPress={handleLogout}>

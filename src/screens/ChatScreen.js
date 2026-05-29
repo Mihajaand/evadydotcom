@@ -42,8 +42,9 @@ const ChatScreen = ({ route, navigation }) => {
 
   // Tier actuel de l'abonnement
   const currentTier = subscription?.tier || 'free';
-  const messageLimit = MESSAGE_LIMITS[currentTier];
-  const canSendMore = dailyCount < messageLimit;
+  const isFemale = profile?.gender === 'FEMALE';
+  const messageLimit = isFemale ? Infinity : MESSAGE_LIMITS[currentTier];
+  const canSendMore = isFemale ? true : (dailyCount < messageLimit);
 
   /**
    * VÉRIFICATION CRITIQUE: Bloquer si même genre
@@ -52,10 +53,10 @@ const ChatScreen = ({ route, navigation }) => {
 
   /**
    * Le bouton signaler est visible UNIQUEMENT si:
-   * - L'utilisateur actuel est une FEMME
-   * - Le partenaire est un HOMME
+   * - L'utilisateur actuel est un HOMME
+   * - Le partenaire est une FEMME
    */
-  const canReport = profile?.gender === 'FEMALE' && partnerGender === 'MALE';
+  const canReport = profile?.gender === 'MALE' && partnerGender === 'FEMALE';
 
   /**
    * Charger les messages au montage
@@ -123,7 +124,7 @@ const ChatScreen = ({ route, navigation }) => {
     setInputText('');
 
     try {
-      await sendMessage(user.id, partnerId, text, currentTier);
+      await sendMessage(user.id, partnerId, text, currentTier, isFemale);
     } catch (error) {
       Alert.alert('Erreur', error.message);
       setInputText(text); // Remettre le texte si erreur
@@ -231,9 +232,11 @@ const ChatScreen = ({ route, navigation }) => {
 
         <View style={styles.headerInfo}>
           <Text style={styles.headerName}>{partnerName}</Text>
-          <Text style={styles.headerStatus}>
-            {dailyCount}/{messageLimit === Infinity ? '∞' : messageLimit} msg aujourd'hui
-          </Text>
+          {profile?.gender === 'MALE' && (
+            <Text style={styles.headerStatus}>
+              {dailyCount}/{messageLimit === Infinity ? '∞' : messageLimit} msg aujourd'hui
+            </Text>
+          )}
         </View>
 
         {/* Bouton signaler (FEMME uniquement) */}

@@ -31,7 +31,7 @@ import ProfileCard from '../components/ProfileCard';
 import SkeletonCard from '../components/SkeletonCard';
 import useLocation from '../hooks/useLocation'; // MODIFICATION : Import du hook GPS
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const HomeScreen = () => {
   const { user, profile } = useAuthStore();
@@ -236,6 +236,20 @@ const HomeScreen = () => {
 
       if (error) throw error;
 
+      // Récupérer les abonnements de ces profils pour l'affichage du badge
+      const profileIds = (data || []).map((p) => p.id);
+      const subsMap = {};
+      if (profileIds.length > 0) {
+        const { data: subsData } = await supabase
+          .from('subscriptions')
+          .select('user_id, tier')
+          .in('user_id', profileIds);
+        
+        (subsData || []).forEach((sub) => {
+          subsMap[sub.user_id] = sub.tier;
+        });
+      }
+
       // MODIFICATION : Calculer la distance et le pays relatifs à la position GPS réelle (via refs stables)
       const profilesWithDistance = (data || []).map((p) => {
         const distance = haversineDistance(
@@ -249,6 +263,7 @@ const HomeScreen = () => {
           ...p,
           distance,
           country,
+          subscriptionTier: subsMap[p.id] || 'free',
         };
       });
 
@@ -842,100 +857,121 @@ const HomeScreen = () => {
       )}
 
       {viewMode === 'card' ? (
-        !currentProfile ? (
-          <View style={styles.centerContainer}>
-            <Ionicons name="heart-dislike-outline" size={80} color={COLORS.gray} />
-            <Text style={styles.emptyTitle}>Plus de profils</Text>
-            <Text style={styles.emptyText}>Essayez de modifier vos filtres ou revenez plus tard.</Text>
-            {/* MODIFICATION : Masqué car le rafraîchissement se fait automatiquement après 10 minutes
-            <TouchableOpacity style={styles.refreshBtn} onPress={fetchProfiles}>
-              <Ionicons name="refresh" size={20} color={COLORS.white} />
-              <Text style={styles.refreshText}>Actualiser</Text>
-            </TouchableOpacity>
-            */}
-          </View>
-        ) : (
-          <View style={styles.cardContainer}>
-            {/* AJOUT : Carte du dessous (prochain profil en 3D deck) animée pour une transition premium */}
-            {currentIndex + 1 < filteredProfiles.length && (
-              <Animated.View 
-                key={filteredProfiles[currentIndex + 1].id}
-                style={[styles.cardUnderneath, animatedUnderneathStyle]}
+        <ScrollView
+          style={styles.discoveryScroll}
+          contentContainerStyle={styles.discoveryScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {!currentProfile ? (
+            <View style={styles.centerContainer}>
+              <Ionicons name="heart-dislike-outline" size={80} color={COLORS.gray} />
+              <Text style={styles.emptyTitle}>Plus de profils</Text>
+              <Text style={styles.emptyText}>Essayez de modifier vos filtres ou revenez plus tard.</Text>
+            </View>
+          ) : (
+            <View style={styles.cardContainer}>
+              {/* AJOUT : Carte du dessous (prochain profil en 3D deck) animée pour une transition premium */}
+              {currentIndex + 1 < filteredProfiles.length && (
+                <Animated.View 
+                  key={filteredProfiles[currentIndex + 1].id}
+                  style={[styles.cardUnderneath, animatedUnderneathStyle]}
+                >
+                  <ProfileCard
+                    profile={filteredProfiles[currentIndex + 1]}
+                    distance={filteredProfiles[currentIndex + 1].distance}
+                  />
+                </Animated.View>
+              )}
+
+              {/* Carte principale (au dessus) avec gestionnaires PanResponder */}
+              <Animated.View
+                key={currentProfile.id}
+                {...panResponder.panHandlers}
+                style={[animatedCardStyle, styles.cardTop]}
               >
                 <ProfileCard
-                  profile={filteredProfiles[currentIndex + 1]}
-                  distance={filteredProfiles[currentIndex + 1].distance}
+                  profile={currentProfile}
+                  distance={currentProfile.distance}
                 />
-              </Animated.View>
-            )}
 
-            {/* Carte principale (au dessus) avec gestionnaires PanResponder */}
-            <Animated.View
-              key={currentProfile.id}
-              {...panResponder.panHandlers}
-              style={[animatedCardStyle, styles.cardTop]}
-            >
-              <ProfileCard
-                profile={currentProfile}
-                distance={currentProfile.distance}
-              />
+                {/**
+                 * @name likeBtnContainer
+                 * @description Jdoc: Conteneur du bouton "J'adore" flottant et des petits cœurs volants
+                 * qui se déclenchent lors du clic avec des coordonnées d'envol aléatoires.
+                 **/}
+                <View style={styles.likeBtnContainer}>
+                  {flyingHearts.map((heart) => {
+                    const translateY = heart.anim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, -160],
+                    });
 
+                    const translateX = heart.anim.interpolate({
+                      inputRange: [0, 0.5, 1],
+                      outputRange: [0, heart.x, heart.x * 1.5],
+                    });
 
-              {/**
-               * @name likeBtnContainer
-               * @description Jdoc: Conteneur du bouton "J'adore" flottant et des petits cœurs volants
-               * qui se déclenchent lors du clic avec des coordonnées d'envol aléatoires.
-               **/}
-              <View style={styles.likeBtnContainer}>
-                {flyingHearts.map((heart) => {
-                  const translateY = heart.anim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, -160],
-                  });
+                    const opacity = heart.anim.interpolate({
+                      inputRange: [0, 0.75, 1],
+                      outputRange: [1, 0.8, 0],
+                    });
 
-                  const translateX = heart.anim.interpolate({
-                    inputRange: [0, 0.5, 1],
-                    outputRange: [0, heart.x, heart.x * 1.5],
-                  });
+                    return (
+                      <Animated.View
+                        key={heart.id}
+                        style={[
+                          styles.flyingHeart,
+                          {
+                            transform: [
+                              { translateX },
+                              { translateY },
+                              { scale: heart.scale },
+                            ],
+                            opacity,
+                          },
+                        ]}
+                      >
+                        <Ionicons name="heart" size={24} color="#FF2D55" />
+                      </Animated.View>
+                    );
+                  })}
 
-                  const opacity = heart.anim.interpolate({
-                    inputRange: [0, 0.75, 1],
-                    outputRange: [1, 0.8, 0],
-                  });
-
-                  return (
-                    <Animated.View
-                      key={heart.id}
-                      style={[
-                        styles.flyingHeart,
-                        {
-                          transform: [
-                            { translateX },
-                            { translateY },
-                            { scale: heart.scale },
-                          ],
-                          opacity,
-                        },
-                      ]}
+                  <Animated.View style={{ transform: [{ scale: likeBtnScale }, { translateY: floatingAnim }] }}>
+                    <TouchableOpacity
+                      style={styles.floatingLikeBtn}
+                      onPress={handleLike}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons name="heart" size={24} color="#FF2D55" />
-                    </Animated.View>
-                  );
-                })}
+                      <Ionicons name="heart" size={36} color={COLORS.white} />
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+              </Animated.View>
+            </View>
+          )}
 
-                <Animated.View style={{ transform: [{ scale: likeBtnScale }, { translateY: floatingAnim }] }}>
-                  <TouchableOpacity
-                    style={styles.floatingLikeBtn}
-                    onPress={handleLike}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="heart" size={36} color={COLORS.white} />
-                  </TouchableOpacity>
-                </Animated.View>
+          {/* Section Qui Sommes-Nous */}
+          <View style={styles.aboutUsContainer}>
+            <View style={styles.aboutUsHeader}>
+              <View style={styles.aboutUsIconContainer}>
+                <Ionicons name="code-working" size={24} color={COLORS.white} />
               </View>
-            </Animated.View>
+              <Text style={styles.aboutUsTitle}>Qui sommes-nous ?</Text>
+            </View>
+            <View style={styles.aboutUsCard}>
+              <Text style={styles.aboutUsText}>
+                Nous sommes une équipe passionnée de développeurs créatifs basés à <Text style={{ color: COLORS.primary, fontWeight: '800' }}>Madagascar 🇲🇬</Text>.
+              </Text>
+              <Text style={styles.aboutUsTextSecondary}>
+                Avec <Text style={{ fontWeight: '700', color: COLORS.black }}>E-VADY</Text>, notre ambition est de créer des ponts magiques et sécurisés pour connecter les cœurs. Chaque ligne de code est pensée, testée et peaufinée localement avec amour pour vous offrir l'expérience de rencontre la plus premium et moderne possible.
+              </Text>
+              <View style={styles.aboutUsFooter}>
+                <Ionicons name="heart" size={16} color={COLORS.primary} />
+                <Text style={styles.aboutUsFooterText}>Fait avec passion depuis Mada</Text>
+              </View>
+            </View>
           </View>
-        )
+        </ScrollView>
       ) : (
         /* AJOUT : Carte Google/Apple Maps interactive avec profils géolocalisés */
         <View style={styles.mapContainer}>
@@ -1066,12 +1102,12 @@ const styles = StyleSheet.create({
   },
   // AJOUT : Styles de positionnement des cartes Tinder empilées (deck)
   cardContainer: {
-    flex: 1,
+    height: height * 0.77,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
     position: 'relative',
-    paddingBottom: 20,
+    marginVertical: 10,
   },
   cardTop: {
     position: 'absolute',
@@ -1373,6 +1409,81 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
+  },
+  discoveryScroll: {
+    flex: 1,
+  },
+  discoveryScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
+  aboutUsContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  aboutUsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  aboutUsIconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  aboutUsTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.black,
+  },
+  aboutUsCard: {
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+  },
+  aboutUsText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: COLORS.black,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  aboutUsTextSecondary: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: COLORS.darkGray,
+    marginBottom: 16,
+  },
+  aboutUsFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+    paddingTop: 12,
+  },
+  aboutUsFooterText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.gray,
   },
 });
 
