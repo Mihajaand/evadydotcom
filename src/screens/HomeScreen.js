@@ -598,10 +598,12 @@ const HomeScreen = () => {
    **/
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => !isTransitioning.current,
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // Améliore le glissé en ignorant les gestes durant la transition et en filtrant les petits mouvements parasites
-        return !isTransitioning.current && Math.abs(gestureState.dx) > 8;
+        // Intercepter UNIQUEMENT si le geste est principalement horizontal (swipe gauche/droite)
+        // Si le geste est vertical (l'utilisateur scrolle la page), on renvoie false pour laisser le ScrollView défiler !
+        const isHorizontalGesture = Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+        return !isTransitioning.current && isHorizontalGesture && Math.abs(gestureState.dx) > 10;
       },
       onPanResponderMove: (evt, gestureState) => {
         if (!isTransitioning.current) {

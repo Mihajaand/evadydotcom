@@ -9,7 +9,8 @@ import useMessageStore from '../store/messageStore';
 
 const useAuth = () => {
   const { user, profile, loading, initialize, setUser, fetchProfile, setLoading } = useAuthStore();
-  const { subscribeToMessages } = useMessageStore();
+  const subscribeToMessages = useMessageStore((state) => state.subscribeToMessages);
+  const fetchConversations = useMessageStore((state) => state.fetchConversations);
 
   useEffect(() => {
     // Initialiser la session au montage
@@ -41,11 +42,14 @@ const useAuth = () => {
   useEffect(() => {
     if (!user?.id) return;
 
+    // Charger immédiatement le compteur initial des messages non lus sur la barre d'onglets
+    fetchConversations(user.id);
+
     const unsubscribe = subscribeToMessages(user.id);
     return () => {
       unsubscribe();
     };
-  }, [user?.id, subscribeToMessages]);
+  }, [user?.id, subscribeToMessages, fetchConversations]);
 
   return { user, profile, loading };
 };

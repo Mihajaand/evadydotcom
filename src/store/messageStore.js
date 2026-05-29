@@ -21,11 +21,18 @@ const useMessageStore = create((set, get) => ({
   setActivePartnerId: (partnerId) => set({ activePartnerId: partnerId }),
 
   /**
+   * Réinitialise le compteur global des messages non lus
+   */
+  resetUnreadTotal: () => set({ unreadTotal: 0 }),
+
+
+  /**
    * Récupère la liste des conversations de l'utilisateur
    * Trie par dernier message envoyé
    */
-  fetchConversations: async (userId) => {
-    set({ loading: true });
+  fetchConversations: async (userId, showLoading = true) => {
+    if (showLoading) set({ loading: true });
+
     try {
       // Récupérer tous les messages impliquant l'utilisateur
       const { data, error } = await supabase
@@ -193,8 +200,8 @@ const useMessageStore = create((set, get) => ({
 
             // Si le message me concerne (envoyé ou reçu)
             if (newMessage.sender_id === userId || newMessage.receiver_id === userId) {
-              // 1. Rafraîchir instantanément la liste des conversations en arrière-plan
-              get().fetchConversations(userId);
+              // 1. Rafraîchir instantanément la liste des conversations en arrière-plan sans loader
+              get().fetchConversations(userId, false);
 
               // 2. Si c'est un message REÇU
               if (newMessage.receiver_id === userId) {
@@ -232,8 +239,8 @@ const useMessageStore = create((set, get) => ({
                   ),
                 }));
               }
-              // Rafraîchir les conversations pour mettre à jour les badges
-              get().fetchConversations(userId);
+              // Rafraîchir les conversations pour mettre à jour les badges en arrière-plan
+              get().fetchConversations(userId, false);
             }
           }
         }

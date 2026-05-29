@@ -79,8 +79,8 @@ const MainTabs = () => {
           return (
             <View>
               <Ionicons name={iconName} size={size} color={color} />
-              {/* Badge non-lu sur l'onglet Messages */}
-              {route.name === 'Messages' && unreadTotal > 0 && (
+              {/* Badge non-lu sur l'onglet Messages (masqué si l'onglet est actif) */}
+              {route.name === 'Messages' && !focused && unreadTotal > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
                     {unreadTotal > 99 ? '99+' : unreadTotal}

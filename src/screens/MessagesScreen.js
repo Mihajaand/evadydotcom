@@ -20,12 +20,13 @@ import useMessages from '../hooks/useMessages';
 import SkeletonMessages from '../components/SkeletonMessages';
 
 const MessagesScreen = ({ navigation }) => {
-  const { conversations, loading, fetchConversations } = useMessages();
+  const { conversations, loading, fetchConversations, resetUnreadTotal } = useMessages();
 
-  // Rafraîchir les conversations à chaque focus
+  // Rafraîchir les conversations à chaque focus et réinitialiser le compteur de messages non lus
   useFocusEffect(
     useCallback(() => {
       fetchConversations();
+      resetUnreadTotal();
     }, [])
   );
 
