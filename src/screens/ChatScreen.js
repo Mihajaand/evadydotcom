@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, MESSAGE_LIMITS, REPORT_REASONS } from '../utils/constants';
+import { validateMessage } from '../utils/forbiddenWords';
 import useAuthStore from '../store/authStore';
 import useMessageStore from '../store/messageStore';
 import useSubscriptionStore from '../store/subscriptionStore';
@@ -32,7 +33,7 @@ const ChatScreen = ({ route, navigation }) => {
 
   const { user, profile } = useAuthStore();
   const { currentMessages, fetchMessages, sendMessage, dailyCount, fetchDailyCount, clearCurrentMessages, setActivePartnerId } = useMessageStore();
-  const { subscription } = useSubscriptionStore();
+  const { subscription, fetchSubscription } = useSubscriptionStore();
 
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
@@ -61,7 +62,11 @@ const ChatScreen = ({ route, navigation }) => {
    */
   useEffect(() => {
     loadMessages();
-    fetchDailyCount();
+    
+    if (user?.id) {
+      fetchDailyCount(user.id);
+      fetchSubscription(user.id);
+    }
 
     // MODIFICATION : Définir ce partenaire comme la conversation active dans le store
     setActivePartnerId(partnerId);
@@ -97,6 +102,13 @@ const ChatScreen = ({ route, navigation }) => {
     // BLOCAGE: même genre
     if (isSameGender) {
       Alert.alert('Action bloquée', 'Vous ne pouvez pas envoyer de messages à une personne du même genre.');
+      return;
+    }
+
+    // MODÉRATION : Vérification des mots interdits, réseaux sociaux et coordonnées
+    const validation = validateMessage(text);
+    if (!validation.isValid) {
+      Alert.alert('Message non autorisé', validation.reason);
       return;
     }
 

@@ -151,6 +151,7 @@ const useMessageStore = create((set, get) => ({
    * Récupère le compteur de messages du jour
    */
   fetchDailyCount: async (userId) => {
+    if (!userId) return 0;
     const today = new Date().toISOString().split('T')[0];
     const { data } = await supabase
       .from('daily_message_counts')
