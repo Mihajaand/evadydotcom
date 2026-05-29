@@ -19,6 +19,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, MESSAGE_LIMITS, REPORT_REASONS } from '../utils/constants';
@@ -38,6 +39,8 @@ const ChatScreen = ({ route, navigation }) => {
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [submittingReport, setSubmittingReport] = useState(false);
   const flatListRef = useRef(null);
 
   // Tier actuel de l'abonnement
@@ -134,31 +137,31 @@ const ChatScreen = ({ route, navigation }) => {
   };
 
   /**
-   * Signaler un utilisateur (FEMME → HOMME uniquement)
+   * Ouvre le modal de signalement
    */
   const handleReport = () => {
-    Alert.alert(
-      'Signaler cet utilisateur',
-      'Sélectionnez une raison :',
-      [
-        ...REPORT_REASONS.map((reason) => ({
-          text: reason,
-          onPress: async () => {
-            try {
-              await supabase.from('reports').insert({
-                reporter_id: user.id,
-                reported_id: partnerId,
-                reason,
-              });
-              Alert.alert('Signalement envoyé', 'Merci, notre équipe examinera ce profil.');
-            } catch (error) {
-              Alert.alert('Erreur', error.message);
-            }
-          },
-        })),
-        { text: 'Annuler', style: 'cancel' },
-      ]
-    );
+    setReportModalVisible(true);
+  };
+
+  /**
+   * Soumet le signalement avec la raison choisie
+   */
+  const submitReport = async (reason) => {
+    setSubmittingReport(true);
+    try {
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: user.id,
+        reported_id: partnerId,
+        reason,
+      });
+      if (error) throw error;
+      setReportModalVisible(false);
+      Alert.alert('Signalement envoyé', 'Merci, notre équipe examinera ce profil.');
+    } catch (error) {
+      Alert.alert('Erreur', error.message);
+    } finally {
+      setSubmittingReport(false);
+    }
   };
 
   /**
@@ -306,6 +309,63 @@ const ChatScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Modal de Signalement Stylé */}
+      <Modal
+        visible={reportModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            {/* Bouton de Fermeture X */}
+            <TouchableOpacity
+              style={styles.modalCloseBtn}
+              onPress={() => setReportModalVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="close" size={24} color={COLORS.darkGray} />
+            </TouchableOpacity>
+
+            {/* En-tête */}
+            <View style={styles.modalHeaderTitleRow}>
+              <Ionicons name="warning" size={28} color={COLORS.danger} />
+              <Text style={styles.modalTitle}>Signaler cet utilisateur</Text>
+            </View>
+            
+            <Text style={styles.modalSubtitle}>
+              Veuillez sélectionner la raison du signalement de {partnerName} :
+            </Text>
+
+            {/* Liste des raisons */}
+            {submittingReport ? (
+              <View style={styles.modalLoading}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.modalLoadingText}>Traitement du signalement...</Text>
+              </View>
+            ) : (
+              <View style={styles.reasonsContainer}>
+                {REPORT_REASONS.map((reason, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.reasonOption}
+                    onPress={() => submitReport(reason)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.reasonOptionText}>{reason}</Text>
+                    <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            <Text style={styles.modalFooterText}>
+              Votre signalement restera strictement confidentiel et sera examiné par nos modérateurs sous 24 heures.
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -480,6 +540,91 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     fontSize: 16,
     marginTop: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 40,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    position: 'relative',
+  },
+  modalCloseBtn: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.lightGray,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  modalHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.black,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: COLORS.darkGray,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  reasonsContainer: {
+    gap: 8,
+    marginBottom: 20,
+  },
+  reasonOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: COLORS.lightGray,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+  },
+  reasonOptionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.black,
+  },
+  modalLoading: {
+    alignItems: 'center',
+    paddingVertical: 30,
+    gap: 12,
+  },
+  modalLoadingText: {
+    fontSize: 14,
+    color: COLORS.gray,
+    fontWeight: '600',
+  },
+  modalFooterText: {
+    fontSize: 12,
+    color: COLORS.gray,
+    textAlign: 'center',
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
 });
 
