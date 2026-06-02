@@ -161,6 +161,22 @@ const useMessageStore = create((set, get) => ({
   },
 
   /**
+   * Supprime un message
+   */
+  deleteMessage: async (messageId) => {
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
+
+    if (error) throw error;
+
+    set((state) => ({
+      currentMessages: state.currentMessages.filter((msg) => msg.id !== messageId),
+    }));
+  },
+
+  /**
    * Récupère le compteur de messages du jour
    */
   fetchDailyCount: async (userId) => {
@@ -187,7 +203,7 @@ const useMessageStore = create((set, get) => ({
       .on(
         'postgres_changes',
         {
-          event: '*', // Écoute tous les événements (INSERT, UPDATE) pour une synchronisation totale
+          event: '*', // Écoute tous les événements (INSERT, UPDATE, DELETE) pour une synchronisation totale
           schema: 'public',
           table: 'messages',
         },
@@ -242,6 +258,19 @@ const useMessageStore = create((set, get) => ({
               // Rafraîchir les conversations pour mettre à jour les badges en arrière-plan
               get().fetchConversations(userId, false);
             }
+          }
+
+          // --- CAS 3 : MESSAGE SUPPRIMÉ ---
+          if (payload.eventType === 'DELETE') {
+            const deletedMessageId = payload.old.id;
+
+            // Retirer le message de currentMessages
+            set((state) => ({
+              currentMessages: state.currentMessages.filter((msg) => msg.id !== deletedMessageId),
+            }));
+
+            // Rafraîchir les conversations
+            get().fetchConversations(userId);
           }
         }
       )

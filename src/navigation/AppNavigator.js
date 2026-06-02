@@ -138,6 +138,13 @@ const MainStack = () => (
       }}
     />
     <Stack.Screen
+      name="UserProfile"
+      component={ProfileScreen}
+      options={{
+        animation: 'slide_from_right',
+      }}
+    />
+    <Stack.Screen
       name="Subscription"
       component={SubscriptionScreen}
       options={{
