@@ -96,7 +96,7 @@ const MessagesScreen = ({ navigation }) => {
             style={[styles.lastMessage, item.unread > 0 && styles.lastMessageBold]}
             numberOfLines={1}
           >
-            {item.lastMessage}
+            {item.lastMessage?.startsWith('[IMAGE]:') ? '📷 Photo' : item.lastMessage}
           </Text>
           {/* Badge non-lu */}
           {item.unread > 0 && (

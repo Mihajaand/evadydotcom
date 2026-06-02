@@ -21,6 +21,7 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, MESSAGE_LIMITS, REPORT_REASONS } from '../utils/constants';
 import { validateMessage } from '../utils/forbiddenWords';
@@ -33,7 +34,7 @@ const ChatScreen = ({ route, navigation }) => {
   const { partnerId, partnerName, partnerAvatar, partnerGender } = route.params;
 
   const { user, profile } = useAuthStore();
-  const { currentMessages, fetchMessages, sendMessage, dailyCount, fetchDailyCount, clearCurrentMessages, setActivePartnerId } = useMessageStore();
+  const { currentMessages, fetchMessages, sendMessage, deleteMessage, dailyCount, fetchDailyCount, clearCurrentMessages, setActivePartnerId } = useMessageStore();
   const { subscription, fetchSubscription } = useSubscriptionStore();
 
   const [inputText, setInputText] = useState('');
@@ -41,6 +42,8 @@ const ChatScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
+  const [selectedFullImage, setSelectedFullImage] = useState(null);
+  const [selectedImage, setSelectedImage] = useState(null);
   const flatListRef = useRef(null);
 
   // Tier actuel de l'abonnement
@@ -101,18 +104,11 @@ const ChatScreen = ({ route, navigation }) => {
    */
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text) return;
+    if (!text && !selectedImage) return;
 
     // BLOCAGE: même genre
     if (isSameGender) {
       Alert.alert('Action bloquée', 'Vous ne pouvez pas envoyer de messages à une personne du même genre.');
-      return;
-    }
-
-    // MODÉRATION : Vérification des mots interdits, réseaux sociaux et coordonnées
-    const validation = validateMessage(text);
-    if (!validation.isValid) {
-      Alert.alert('Message non autorisé', validation.reason);
       return;
     }
 
@@ -125,12 +121,59 @@ const ChatScreen = ({ route, navigation }) => {
 
     setSending(true);
     setInputText('');
+    const imageToSend = selectedImage;
+    setSelectedImage(null);
 
     try {
-      await sendMessage(user.id, partnerId, text, currentTier, isFemale);
+      // Si une image est présente, on l'upload et on l'envoie en premier
+      if (imageToSend) {
+        const { uri, base64, fileExt } = imageToSend;
+        const fileName = `chats/${user.id}/${Date.now()}.${fileExt}`;
+
+        // Convertir base64 en ArrayBuffer
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Upload vers Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('photos')
+          .upload(fileName, bytes.buffer, {
+            contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+
+        // URL publique
+        const { data: urlData } = supabase.storage
+          .from('photos')
+          .getPublicUrl(fileName);
+
+        // Envoyer le message d'image
+        await sendMessage(user.id, partnerId, `[IMAGE]:${urlData.publicUrl}`, currentTier, isFemale);
+      }
+
+      // Si du texte a été saisi, on l'envoie ensuite
+      if (text) {
+        // MODÉRATION : Vérification des mots interdits, réseaux sociaux et coordonnées
+        const validation = validateMessage(text);
+        if (!validation.isValid) {
+          Alert.alert('Message non autorisé', validation.reason);
+          // Restaurer le texte pour que l'utilisateur puisse le modifier
+          setInputText(text);
+          return;
+        }
+
+        await sendMessage(user.id, partnerId, text, currentTier, isFemale);
+      }
     } catch (error) {
       Alert.alert('Erreur', error.message);
-      setInputText(text); // Remettre le texte si erreur
+      // Remettre l'image et le texte si l'envoi a échoué
+      if (text) setInputText(text);
+      if (imageToSend) setSelectedImage(imageToSend);
     } finally {
       setSending(false);
     }
@@ -165,33 +208,106 @@ const ChatScreen = ({ route, navigation }) => {
   };
 
   /**
-   * Scroll automatique vers le dernier message
+   * Sélectionne une photo depuis la galerie sans l'envoyer immédiatement
    */
-  useEffect(() => {
-    if (currentMessages.length > 0 && flatListRef.current) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+  const handleSendImage = async () => {
+    if (isSameGender) {
+      Alert.alert('Action bloquée', 'Vous ne pouvez pas envoyer de messages à une personne du même genre.');
+      return;
     }
-  }, [currentMessages.length]);
+
+    if (!canSendMore) {
+      Alert.alert('Limite atteinte', `Vous avez atteint votre limite de ${messageLimit} messages/jour. Améliorez votre abonnement !`);
+      navigation.navigate('Subscription');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (result.canceled) return;
+
+    const file = result.assets[0];
+    setSelectedImage({
+      uri: file.uri,
+      base64: file.base64,
+      fileExt: file.uri.split('.').pop().toLowerCase()
+    });
+  };
 
   /**
-   * Rendu d'un message
+   * Gère l'appui long sur un message pour sa suppression
+   */
+  const handleLongPressMessage = (message) => {
+    Alert.alert(
+      'Supprimer le message',
+      'Voulez-vous supprimer ce message pour tout le monde ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMessage(message.id);
+            } catch (error) {
+              Alert.alert('Erreur', 'Impossible de supprimer le message.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /**
+   * Rendu d'un message (avec support image, avatar cliquable et suppression)
    */
   const renderMessage = ({ item }) => {
     const isMe = item.sender_id === user.id;
+    const isImage = item.content?.startsWith('[IMAGE]:');
+    const imageUrl = isImage ? item.content.substring(8) : null;
+
     return (
-      <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
-        <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
-          {item.content}
-        </Text>
-        <Text style={[styles.messageTime, isMe && styles.myMessageTime]}>
-          {new Date(item.created_at).toLocaleTimeString('fr-FR', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          {isMe && item.is_read && ' ✓✓'}
-        </Text>
+      <View style={[styles.messageRow, isMe ? styles.myMessageRow : styles.theirMessageRow]}>
+        {!isMe && (
+          <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: partnerId })}>
+            <Image
+              source={
+                partnerAvatar
+                  ? { uri: partnerAvatar }
+                  : require('../../assets/default-avatar.png')
+              }
+              style={styles.messageAvatar}
+            />
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          activeOpacity={0.95}
+          onLongPress={() => isMe && handleLongPressMessage(item)}
+          style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}
+        >
+          {isImage ? (
+            <TouchableOpacity onPress={() => setSelectedFullImage(imageUrl)}>
+              <Image source={{ uri: imageUrl }} style={styles.messageImage} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
+              {item.content}
+            </Text>
+          )}
+          <Text style={[styles.messageTime, isMe && styles.myMessageTime]}>
+            {new Date(item.created_at).toLocaleTimeString('fr-FR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+            {isMe && item.is_read && ' ✓✓'}
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -224,23 +340,29 @@ const ChatScreen = ({ route, navigation }) => {
           <Ionicons name="arrow-back" size={24} color={COLORS.black} />
         </TouchableOpacity>
 
-        <Image
-          source={
-            partnerAvatar
-              ? { uri: partnerAvatar }
-              : require('../../assets/default-avatar.png')
-          }
-          style={styles.headerAvatar}
-        />
+        <TouchableOpacity
+          style={styles.headerInfoContainer}
+          onPress={() => navigation.navigate('UserProfile', { userId: partnerId })}
+          activeOpacity={0.7}
+        >
+          <Image
+            source={
+              partnerAvatar
+                ? { uri: partnerAvatar }
+                : require('../../assets/default-avatar.png')
+            }
+            style={styles.headerAvatar}
+          />
 
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerName}>{partnerName}</Text>
-          {profile?.gender === 'MALE' && (
-            <Text style={styles.headerStatus}>
-              {dailyCount}/{messageLimit === Infinity ? '∞' : messageLimit} msg aujourd'hui
-            </Text>
-          )}
-        </View>
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerName}>{partnerName}</Text>
+            {profile?.gender === 'MALE' && (
+              <Text style={styles.headerStatus}>
+                {dailyCount}/{messageLimit === Infinity ? '∞' : messageLimit} msg aujourd'hui
+              </Text>
+            )}
+          </View>
+        </TouchableOpacity>
 
         {/* Bouton signaler (FEMME uniquement) */}
         {canReport && (
@@ -258,13 +380,14 @@ const ChatScreen = ({ route, navigation }) => {
       ) : (
         <FlatList
           ref={flatListRef}
-          data={currentMessages}
+          data={[...currentMessages].reverse()}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
+          inverted
           ListEmptyComponent={
-            <View style={styles.center}>
+            <View style={[styles.center, { transform: [{ scaleY: -1 }] }]}>
               <Ionicons name="chatbubble-ellipses-outline" size={50} color={COLORS.gray} />
               <Text style={styles.emptyText}>Commencez la conversation !</Text>
             </View>
@@ -285,7 +408,33 @@ const ChatScreen = ({ route, navigation }) => {
             </Text>
           </TouchableOpacity>
         )}
+        
+        {/* Prévisualisation de la photo sélectionnée avant envoi */}
+        {selectedImage && (
+          <View style={styles.imagePreviewContainer}>
+            <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} />
+            <TouchableOpacity
+              style={styles.clearImageBtn}
+              onPress={() => setSelectedImage(null)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={24} color={COLORS.danger} />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.inputRow}>
+          <TouchableOpacity
+            style={styles.imagePickerBtn}
+            onPress={handleSendImage}
+            disabled={sending || !canSendMore}
+          >
+            {sending ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : (
+              <Ionicons name="image-outline" size={24} color={canSendMore ? COLORS.primary : COLORS.gray} />
+            )}
+          </TouchableOpacity>
           <TextInput
             value={inputText}
             onChangeText={setInputText}
@@ -297,9 +446,9 @@ const ChatScreen = ({ route, navigation }) => {
             editable={canSendMore}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, (!inputText.trim() || sending || !canSendMore) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, ((!inputText.trim() && !selectedImage) || sending || !canSendMore) && styles.sendBtnDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim() || sending || !canSendMore}
+            disabled={(!inputText.trim() && !selectedImage) || sending || !canSendMore}
           >
             {sending ? (
               <ActivityIndicator size="small" color={COLORS.white} />
@@ -364,6 +513,34 @@ const ChatScreen = ({ route, navigation }) => {
               Votre signalement restera strictement confidentiel et sera examiné par nos modérateurs sous 24 heures.
             </Text>
           </View>
+        </View>
+      </Modal>
+
+      {/* Modal pour afficher l'image du chat en plein écran */}
+      <Modal
+        visible={selectedFullImage !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedFullImage(null)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setSelectedFullImage(null)}
+            >
+              <Ionicons name="close" size={24} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
+          {selectedFullImage && (
+            <View style={styles.modalImageContainer}>
+              <Image
+                source={{ uri: selectedFullImage }}
+                style={styles.modalImage}
+                resizeMode="contain"
+              />
+            </View>
+          )}
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -625,6 +802,95 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 16,
     fontStyle: 'italic',
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 8,
+    width: '100%',
+  },
+  myMessageRow: {
+    justifyContent: 'flex-end',
+  },
+  theirMessageRow: {
+    justifyContent: 'flex-start',
+  },
+  messageAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+    backgroundColor: COLORS.lightGray,
+  },
+  messageImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    resizeMode: 'cover',
+  },
+  imagePickerBtn: {
+    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewContainer: {
+    padding: 8,
+    flexDirection: 'row',
+    position: 'relative',
+    alignSelf: 'flex-start',
+    marginLeft: 16,
+    marginBottom: 4,
+  },
+  imagePreview: {
+    width: 70,
+    height: 70,
+    borderRadius: 8,
+    resizeMode: 'cover',
+  },
+  clearImageBtn: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+  },
+  headerInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    position: 'absolute',
+    top: 0,
+    zIndex: 10,
+  },
+  modalCloseButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImageContainer: {
+    width: '100%',
+    height: '80%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 

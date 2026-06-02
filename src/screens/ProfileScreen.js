@@ -25,10 +25,14 @@ import Input from '../components/Input';
 import Button from '../components/Button';
 import SkeletonPhotos from '../components/SkeletonPhotos';
 
-const ProfileScreen = ({ navigation }) => {
-  const { user, profile, logout, updateProfile } = useAuthStore();
+const ProfileScreen = ({ route, navigation }) => {
+  const { user, profile: myProfile, logout, updateProfile } = useAuthStore();
   const { subscription, fetchSubscription } = useSubscriptionStore();
 
+  const targetUserId = route?.params?.userId;
+  const isOwnProfile = !targetUserId || targetUserId === user?.id;
+
+  const [profile, setProfile] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -41,26 +45,61 @@ const ProfileScreen = ({ navigation }) => {
 
   // Charger les données au montage
   useEffect(() => {
-    if (profile) {
-      setFullName(profile.full_name || '');
-      setBio(profile.bio || '');
+    if (isOwnProfile) {
+      if (myProfile) {
+        setProfile(myProfile);
+        setFullName(myProfile.full_name || '');
+        setBio(myProfile.bio || '');
+      }
+      if (user?.id) {
+        fetchPhotos(user.id);
+        fetchSubscription(user.id);
+      }
+    } else if (targetUserId) {
+      fetchTargetProfile();
     }
-    if (user?.id) {
-      fetchPhotos();
-      fetchSubscription(user.id);
+  }, [myProfile, user, targetUserId, isOwnProfile]);
+
+  const fetchTargetProfile = async () => {
+    setLoadingPhotos(true);
+    try {
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', targetUserId)
+        .single();
+
+      if (profileError) throw profileError;
+      setProfile(profileData);
+      setFullName(profileData.full_name || '');
+      setBio(profileData.bio || '');
+
+      const { data: photosData, error: photosError } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .order('created_at', { ascending: true });
+
+      if (photosError) throw photosError;
+      setPhotos(photosData || []);
+    } catch (error) {
+      console.error('Erreur chargement profil tiers:', error);
+      Alert.alert('Erreur', 'Impossible de charger le profil.');
+    } finally {
+      setLoadingPhotos(false);
     }
-  }, [profile, user]);
+  };
 
   /**
    * Récupère les photos de l'utilisateur
    */
-  const fetchPhotos = async () => {
+  const fetchPhotos = async (uid) => {
     setLoadingPhotos(true);
     try {
       const { data, error } = await supabase
         .from('photos')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', uid || user.id)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -340,14 +379,23 @@ const ProfileScreen = ({ navigation }) => {
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       {/* En-tête profil */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Mon Profil</Text>
-        <TouchableOpacity onPress={() => setEditing(!editing)}>
-          <Ionicons
-            name={editing ? 'close' : 'create-outline'}
-            size={24}
-            color={COLORS.primary}
-          />
-        </TouchableOpacity>
+        {!isOwnProfile && (
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.black} />
+          </TouchableOpacity>
+        )}
+        <Text style={[styles.headerTitle, !isOwnProfile && { flex: 1 }]}>
+          {isOwnProfile ? 'Mon Profil' : (profile?.full_name || 'Profil')}
+        </Text>
+        {isOwnProfile && (
+          <TouchableOpacity onPress={() => setEditing(!editing)}>
+            <Ionicons
+              name={editing ? 'close' : 'create-outline'}
+              size={24}
+              color={COLORS.primary}
+            />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Avatar principal */}
@@ -370,13 +418,15 @@ const ProfileScreen = ({ navigation }) => {
             />
           )}
           {/* MODIFICATION : Bouton icône pour modifier/ajouter directement la photo de profil */}
-          <TouchableOpacity
-            style={styles.editAvatarButton}
-            onPress={handleUploadProfilePhoto}
-            disabled={loadingAvatar}
-          >
-            <Ionicons name="camera" size={20} color={COLORS.white} />
-          </TouchableOpacity>
+          {isOwnProfile && (
+            <TouchableOpacity
+              style={styles.editAvatarButton}
+              onPress={handleUploadProfilePhoto}
+              disabled={loadingAvatar}
+            >
+              <Ionicons name="camera" size={20} color={COLORS.white} />
+            </TouchableOpacity>
+          )}
         </View>
         <Text style={styles.name}>
           {profile?.full_name}{age ? `, ${age} ans` : ''}
@@ -393,7 +443,8 @@ const ProfileScreen = ({ navigation }) => {
               subscription?.tier === 'vip' && styles.subBadgeVip,
               subscription?.tier === 'premium' && styles.subBadgePremium,
             ]}
-            onPress={() => navigation.navigate('Subscription')}
+            onPress={() => isOwnProfile && navigation.navigate('Subscription')}
+            disabled={!isOwnProfile}
           >
             <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
             <Text style={styles.subBadgeText}>
@@ -460,7 +511,7 @@ const ProfileScreen = ({ navigation }) => {
               ))}
 
               {/* Bouton ajouter */}
-              {photos.length < 6 && (
+              {isOwnProfile && photos.length < 6 && (
                 <TouchableOpacity style={styles.addPhotoBtn} onPress={handleAddPhoto}>
                   <Ionicons name="add" size={32} color={COLORS.primary} />
                   <Text style={styles.addPhotoText}>Ajouter</Text>
@@ -469,7 +520,9 @@ const ProfileScreen = ({ navigation }) => {
             </>
           )}
         </View>
-        <Text style={styles.photoHint}>Appuyez sur une photo pour l'agrandir ou la supprimer</Text>
+        <Text style={styles.photoHint}>
+          {isOwnProfile ? "Appuyez sur une photo pour l'agrandir ou la supprimer" : "Appuyez sur une photo pour l'agrandir"}
+        </Text>
       </View>
 
       {/* Modal de visualisation de photo en plein écran */}
@@ -489,16 +542,18 @@ const ProfileScreen = ({ navigation }) => {
               <Ionicons name="close" size={24} color={COLORS.white} />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.modalDeleteButton}
-              onPress={() => {
-                if (selectedPhoto) {
-                  handleDeletePhoto(selectedPhoto.id);
-                }
-              }}
-            >
-              <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
-            </TouchableOpacity>
+            {isOwnProfile && (
+              <TouchableOpacity
+                style={styles.modalDeleteButton}
+                onPress={() => {
+                  if (selectedPhoto) {
+                    handleDeletePhoto(selectedPhoto.id);
+                  }
+                }}
+              >
+                <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Zone de l'image */}
@@ -520,30 +575,32 @@ const ProfileScreen = ({ navigation }) => {
       </Modal>
 
       {/* Actions */}
-      <View style={styles.actionsSection}>
-        {/* Abonnement (Homme uniquement) */}
-        {profile?.gender === 'MALE' && (
-          <TouchableOpacity
-            style={styles.actionRow}
-            onPress={() => navigation.navigate('Subscription')}
-          >
+      {isOwnProfile && (
+        <View style={styles.actionsSection}>
+          {/* Abonnement (Homme uniquement) */}
+          {profile?.gender === 'MALE' && (
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={() => navigation.navigate('Subscription')}
+            >
+              <View style={styles.actionLeft}>
+                <Ionicons name="diamond-outline" size={22} color={COLORS.primary} />
+                <Text style={styles.actionText}>Mon abonnement</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+            </TouchableOpacity>
+          )}
+
+          {/* Déconnexion */}
+          <TouchableOpacity style={styles.actionRow} onPress={handleLogout}>
             <View style={styles.actionLeft}>
-              <Ionicons name="diamond-outline" size={22} color={COLORS.primary} />
-              <Text style={styles.actionText}>Mon abonnement</Text>
+              <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
+              <Text style={[styles.actionText, styles.logoutText]}>Déconnexion</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
           </TouchableOpacity>
-        )}
-
-        {/* Déconnexion */}
-        <TouchableOpacity style={styles.actionRow} onPress={handleLogout}>
-          <View style={styles.actionLeft}>
-            <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
-            <Text style={[styles.actionText, styles.logoutText]}>Déconnexion</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-        </TouchableOpacity>
-      </View>
+        </View>
+      )}
     </ScrollView>
   );
 };
