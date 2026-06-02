@@ -20,6 +20,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Keyboard,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,7 +44,6 @@ const ChatScreen = ({ route, navigation }) => {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
   const [selectedFullImage, setSelectedFullImage] = useState(null);
-  const [selectedImage, setSelectedImage] = useState(null);
   const flatListRef = useRef(null);
 
   // Tier actuel de l'abonnement
@@ -104,7 +104,7 @@ const ChatScreen = ({ route, navigation }) => {
    */
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text && !selectedImage) return;
+    if (!text) return;
 
     // BLOCAGE: même genre
     if (isSameGender) {
@@ -121,59 +121,20 @@ const ChatScreen = ({ route, navigation }) => {
 
     setSending(true);
     setInputText('');
-    const imageToSend = selectedImage;
-    setSelectedImage(null);
 
     try {
-      // Si une image est présente, on l'upload et on l'envoie en premier
-      if (imageToSend) {
-        const { uri, base64, fileExt } = imageToSend;
-        const fileName = `chats/${user.id}/${Date.now()}.${fileExt}`;
-
-        // Convertir base64 en ArrayBuffer
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        // Upload vers Supabase Storage
-        const { error: uploadError } = await supabase.storage
-          .from('photos')
-          .upload(fileName, bytes.buffer, {
-            contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
-            upsert: false,
-          });
-
-        if (uploadError) throw uploadError;
-
-        // URL publique
-        const { data: urlData } = supabase.storage
-          .from('photos')
-          .getPublicUrl(fileName);
-
-        // Envoyer le message d'image
-        await sendMessage(user.id, partnerId, `[IMAGE]:${urlData.publicUrl}`, currentTier, isFemale);
+      // MODÉRATION : Vérification des mots interdits, réseaux sociaux et coordonnées
+      const validation = validateMessage(text);
+      if (!validation.isValid) {
+        Alert.alert('Message non autorisé', validation.reason);
+        setInputText(text);
+        return;
       }
 
-      // Si du texte a été saisi, on l'envoie ensuite
-      if (text) {
-        // MODÉRATION : Vérification des mots interdits, réseaux sociaux et coordonnées
-        const validation = validateMessage(text);
-        if (!validation.isValid) {
-          Alert.alert('Message non autorisé', validation.reason);
-          // Restaurer le texte pour que l'utilisateur puisse le modifier
-          setInputText(text);
-          return;
-        }
-
-        await sendMessage(user.id, partnerId, text, currentTier, isFemale);
-      }
+      await sendMessage(user.id, partnerId, text, currentTier, isFemale);
     } catch (error) {
       Alert.alert('Erreur', error.message);
-      // Remettre l'image et le texte si l'envoi a échoué
-      if (text) setInputText(text);
-      if (imageToSend) setSelectedImage(imageToSend);
+      setInputText(text);
     } finally {
       setSending(false);
     }
@@ -208,7 +169,7 @@ const ChatScreen = ({ route, navigation }) => {
   };
 
   /**
-   * Sélectionne une photo depuis la galerie sans l'envoyer immédiatement
+   * Sélectionne une photo depuis la galerie et l'envoie directement (style Facebook)
    */
   const handleSendImage = async () => {
     if (isSameGender) {
@@ -222,6 +183,9 @@ const ChatScreen = ({ route, navigation }) => {
       return;
     }
 
+    // Fermer le clavier avant d'ouvrir la galerie
+    Keyboard.dismiss();
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
@@ -229,14 +193,46 @@ const ChatScreen = ({ route, navigation }) => {
       base64: true,
     });
 
+    // Forcer la fermeture du clavier au retour de la galerie (fix layout Android)
+    Keyboard.dismiss();
+
     if (result.canceled) return;
 
     const file = result.assets[0];
-    setSelectedImage({
-      uri: file.uri,
-      base64: file.base64,
-      fileExt: file.uri.split('.').pop().toLowerCase()
-    });
+    const fileExt = file.uri.split('.').pop().toLowerCase();
+    const fileName = `chats/${user.id}/${Date.now()}.${fileExt}`;
+
+    setSending(true);
+    try {
+      // Convertir base64 en ArrayBuffer
+      const binaryString = atob(file.base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Upload vers Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('photos')
+        .upload(fileName, bytes.buffer, {
+          contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // URL publique
+      const { data: urlData } = supabase.storage
+        .from('photos')
+        .getPublicUrl(fileName);
+
+      // Envoyer le message image directement
+      await sendMessage(user.id, partnerId, `[IMAGE]:${urlData.publicUrl}`, currentTier, isFemale);
+    } catch (error) {
+      Alert.alert('Erreur lors de l\'envoi de la photo', error.message);
+    } finally {
+      setSending(false);
+    }
   };
 
   /**
@@ -330,10 +326,9 @@ const ChatScreen = ({ route, navigation }) => {
 
   return (
     <KeyboardAvoidingView
-      key={selectedImage ? 'kb-with-image' : 'kb-without-image'}
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       {/* En-tête */}
       <View style={styles.header}>
@@ -411,19 +406,6 @@ const ChatScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         )}
         
-        {/* Prévisualisation de la photo sélectionnée avant envoi */}
-        {selectedImage && (
-          <View style={styles.imagePreviewContainer}>
-            <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} />
-            <TouchableOpacity
-              style={styles.clearImageBtn}
-              onPress={() => setSelectedImage(null)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close-circle" size={24} color={COLORS.danger} />
-            </TouchableOpacity>
-          </View>
-        )}
 
         <View style={styles.inputRow}>
           <TouchableOpacity
@@ -448,9 +430,9 @@ const ChatScreen = ({ route, navigation }) => {
             editable={canSendMore}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, ((!inputText.trim() && !selectedImage) || sending || !canSendMore) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!inputText.trim() || sending || !canSendMore) && styles.sendBtnDisabled]}
             onPress={handleSend}
-            disabled={(!inputText.trim() && !selectedImage) || sending || !canSendMore}
+            disabled={!inputText.trim() || sending || !canSendMore}
           >
             {sending ? (
               <ActivityIndicator size="small" color={COLORS.white} />
