@@ -33,7 +33,7 @@ import useLocation from '../hooks/useLocation'; // MODIFICATION : Import du hook
 
 const { width, height } = Dimensions.get('window');
 
-const HomeScreen = () => {
+const HomeScreen = ({ navigation }) => {
   const { user, profile } = useAuthStore();
   const [profiles, setProfiles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -891,10 +891,15 @@ const HomeScreen = () => {
                 {...panResponder.panHandlers}
                 style={[animatedCardStyle, styles.cardTop]}
               >
-                <ProfileCard
-                  profile={currentProfile}
-                  distance={currentProfile.distance}
-                />
+                <TouchableOpacity
+                  activeOpacity={0.95}
+                  onPress={() => navigation.navigate('UserProfile', { userId: currentProfile.id })}
+                >
+                  <ProfileCard
+                    profile={currentProfile}
+                    distance={currentProfile.distance}
+                  />
+                </TouchableOpacity>
 
                 {/**
                  * @name likeBtnContainer

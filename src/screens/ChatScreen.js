@@ -330,6 +330,7 @@ const ChatScreen = ({ route, navigation }) => {
 
   return (
     <KeyboardAvoidingView
+      key={selectedImage ? 'kb-with-image' : 'kb-without-image'}
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
@@ -383,6 +384,7 @@ const ChatScreen = ({ route, navigation }) => {
           data={[...currentMessages].reverse()}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
+          style={{ flex: 1 }}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
           inverted
