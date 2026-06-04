@@ -2,145 +2,83 @@ import { useEffect } from 'react';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
-import useMessageStore from '../store/messageStore';
+import useNotificationStore from '../store/notificationStore';
 import { registerForPushNotifications, setupNotificationListeners } from '../utils/notifications';
 
 const useRealtimeNotifications = () => {
   const user = useAuthStore((state) => state.user);
-  const activePartnerId = useMessageStore((state) => state.activePartnerId);
+  const addLocalNotification = useNotificationStore((state) => state.addLocalNotification);
+  const fetchNotifications = useNotificationStore((state) => state.fetchNotifications);
 
   useEffect(() => {
     if (!user?.id) return;
+
+    // Charger les notifications initiales au montage
+    fetchNotifications(user.id);
 
     // 1. Enregistrer le token de push et demander les permissions système
     registerForPushNotifications(user.id);
 
     // 2. Configurer les listeners pour le clic sur les notifications
     const unsubscribeNotifications = setupNotificationListeners((data) => {
-      console.log('[RealtimeNotif] Notification cliquée avec données:', data);
-      // Ici, on pourrait ajouter une navigation personnalisée si nécessaire.
+      console.log('[RealtimeNotif] Notification cliquée:', data);
     });
 
-    // Seuil de bannissement
-    const BAN_THRESHOLD = 5;
-
-    // 3. S'abonner aux canaux de temps réel de Supabase
+    // 3. S'abonner aux changements de la table 'notifications' pour l'utilisateur en temps réel
     const channel = supabase
-      .channel(`realtime-notifications-${user.id}`)
-      // Écoute des Likes
+      .channel(`realtime-notifications-db-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*', // Écoute tous les événements (INSERT, DELETE)
           schema: 'public',
-          table: 'likes',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
         },
         async (payload) => {
-          const newLike = payload.new;
-          if (newLike.liked_id === user.id) {
+          if (payload.eventType === 'INSERT') {
+            const newNotif = payload.new;
             try {
-              // Récupérer le nom de la personne qui a liké
-              const { data: likerProfile } = await supabase
+              // Récupérer le profil de la personne qui notifie
+              const { data: notifierProfile } = await supabase
                 .from('profiles')
-                .select('full_name')
-                .eq('id', newLike.liker_id)
+                .select('id, full_name, avatar_url, gender')
+                .eq('id', newNotif.notifier_id)
                 .single();
 
-              const likerName = likerProfile?.full_name || 'Quelqu\'un';
+              const enrichedNotif = {
+                ...newNotif,
+                notifier: notifierProfile,
+              };
 
-              // Déclencher une notification native au haut du téléphone
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: '❤️ Vous avez reçu un Like !',
-                  body: `${likerName} a aimé votre profil`,
-                  data: { type: 'like', likerId: newLike.liker_id },
-                },
-                trigger: null,
-              });
-            } catch (err) {
-              console.error('Erreur lors du traitement de la notification de Like:', err);
-            }
-          }
-        }
-      )
-      // Écoute des Messages
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-        },
-        async (payload) => {
-          const newMessage = payload.new;
-          // Si le message m'est destiné ET que je ne suis pas actuellement en train de discuter avec l'expéditeur
-          if (newMessage.receiver_id === user.id && activePartnerId !== newMessage.sender_id) {
-            try {
-              // Récupérer le nom de l'expéditeur
-              const { data: senderProfile } = await supabase
-                .from('profiles')
-                .select('full_name')
-                .eq('id', newMessage.sender_id)
-                .single();
+              // Mettre à jour l'état local du store instantanément
+              addLocalNotification(enrichedNotif);
 
-              const senderName = senderProfile?.full_name || 'Quelqu\'un';
-              const isImage = newMessage.content?.startsWith('[IMAGE]:');
-              const messageSnippet = isImage ? '📷 Photo' : newMessage.content;
-
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: `💬 Nouveau message de ${senderName}`,
-                  body: messageSnippet,
-                  data: { type: 'message', senderId: newMessage.sender_id },
-                },
-                trigger: null,
-              });
-            } catch (err) {
-              console.error('Erreur lors du traitement de la notification de Message:', err);
-            }
-          }
-        }
-      )
-      // Écoute des Signalements
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'reports',
-        },
-        async (payload) => {
-          const newReport = payload.new;
-          if (newReport.reported_id === user.id) {
-            try {
-              // Compter le nombre de signalements total
-              const { count } = await supabase
-                .from('reports')
-                .select('id', { count: 'exact', head: true })
-                .eq('reported_id', user.id);
-
-              const totalReports = count || 1;
-              const remaining = BAN_THRESHOLD - totalReports;
-
-              let notifTitle = '⚠️ Votre profil a été signalé';
-              let notifBody = `Votre profil a été signalé ${totalReports} fois. Il vous reste ${remaining} signalement(s) avant le bannissement de votre compte.`;
-
-              if (remaining <= 0) {
-                notifTitle = '🚨 Compte sur le point d\'être banni';
-                notifBody = `Votre profil a atteint le maximum de signalements (${totalReports}). Votre compte va être suspendu.`;
+              // Déterminer le titre selon le type
+              let title = '❤️ Nouveau Like !';
+              let bodyText = newNotif.content;
+              if (newNotif.type === 'message') {
+                title = `💬 Nouveau message`;
+                bodyText = `${notifierProfile?.full_name || 'Quelqu\'un'} vous a envoyé un message.`;
+              } else if (newNotif.type === 'report') {
+                title = '⚠️ Votre profil a été signalé';
               }
 
+              // Déclencher la notification native en haut du téléphone
               await Notifications.scheduleNotificationAsync({
                 content: {
-                  title: notifTitle,
-                  body: notifBody,
-                  data: { type: 'report', totalReports, remaining: Math.max(0, remaining) },
+                  title: title,
+                  body: bodyText,
+                  data: enrichedNotif,
                 },
                 trigger: null,
               });
             } catch (err) {
-              console.error('Erreur lors du traitement de la notification de Signalement:', err);
+              console.error('Erreur traitement realtime notification:', err);
             }
+          } else if (payload.eventType === 'DELETE') {
+            // Lors d'une suppression de doublon ou manuelle, on rafraîchit la liste et le compteur
+            fetchNotifications(user.id);
           }
         }
       )
@@ -150,7 +88,7 @@ const useRealtimeNotifications = () => {
       supabase.removeChannel(channel);
       unsubscribeNotifications();
     };
-  }, [user?.id, activePartnerId]);
+  }, [user?.id]);
 };
 
 export default useRealtimeNotifications;

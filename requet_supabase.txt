@@ -116,4 +116,46 @@ using (auth.uid() = passer_id);
 create policy "Autoriser la création de ses propres passes"
 on passes for insert
 to authenticated
-with check (auth.uid() = passer_id);
+with check (auth.uid() = passer_id);
+
+/**
+*pour active le realtime pour notification push
+**/
+alter publication supabase_realtime add table likes;
+alter publication supabase_realtime add table reports;
+
+
+/**
+*Pour stocker ces notifications de manière persistante, *il faut créer la table notifications dans la base de données Supabase. on exécute le script SQL suivant dans l'éditeur SQL de  console d'administration Supabase :
+**/
+create table notifications (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references profiles(id) on delete cascade,
+  notifier_id uuid references profiles(id) on delete cascade,
+  type text not null, -- 'like', 'message', 'report'
+  content text,
+  is_read boolean default false,
+  created_at timestamp with time zone default now()
+);
+
+-- Activer RLS
+alter table notifications enable row level security;
+
+create policy "Lecture de ses propres notifications"
+on notifications for select to authenticated
+using (auth.uid() = user_id);
+
+create policy "Création de notifications"
+on notifications for insert to authenticated
+with check (auth.uid() = notifier_id OR auth.uid() = user_id);
+
+create policy "Suppression de ses propres notifications"
+on notifications for delete to authenticated
+using (auth.uid() = user_id);
+
+create policy "Mise à jour de ses propres notifications"
+on notifications for update to authenticated
+using (auth.uid() = user_id);
+
+-- Activer temps réel sur la table
+alter publication supabase_realtime add table notifications;

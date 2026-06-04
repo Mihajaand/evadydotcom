@@ -80,6 +80,18 @@ serve(async (req: Request) => {
       notifBody = `Votre profil a été signalé ${totalReports} fois. Il vous reste ${remaining} signalement${remaining > 1 ? 's' : ''} avant le bannissement de votre compte.`;
     }
 
+    // Insérer également dans la table notifications persistante
+    try {
+      await supabase.from('notifications').insert({
+        user_id: reported_id,
+        notifier_id: reported_id, // Utiliser le signalé pour anonymiser le dénonciateur
+        type: 'report',
+        content: notifBody,
+      });
+    } catch (notifErr) {
+      console.error('[on-new-report] Erreur insertion notifications table:', notifErr.message);
+    }
+
     // Envoyer la notification
     const sendRes = await fetch(SEND_PUSH_URL, {
       method: 'POST',

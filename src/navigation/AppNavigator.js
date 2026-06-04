@@ -27,6 +27,7 @@ import MessagesScreen from '../screens/MessagesScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ChatScreen from '../screens/ChatScreen';
 import SubscriptionScreen from '../screens/SubscriptionScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -149,6 +150,13 @@ const MainStack = () => (
       component={SubscriptionScreen}
       options={{
         presentation: 'modal',
+      }}
+    />
+    <Stack.Screen
+      name="Notifications"
+      component={NotificationsScreen}
+      options={{
+        animation: 'slide_from_bottom',
       }}
     />
   </Stack.Navigator>

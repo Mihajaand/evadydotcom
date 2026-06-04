@@ -30,11 +30,13 @@ import useAuthStore from '../store/authStore';
 import ProfileCard from '../components/ProfileCard';
 import SkeletonCard from '../components/SkeletonCard';
 import useLocation from '../hooks/useLocation'; // MODIFICATION : Import du hook GPS
+import useNotificationStore from '../store/notificationStore';
 
 const { width, height } = Dimensions.get('window');
 
 const HomeScreen = ({ navigation }) => {
   const { user, profile } = useAuthStore();
+  const unreadCount = useNotificationStore((state) => state.unreadCount);
   const [profiles, setProfiles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -464,6 +466,22 @@ const HomeScreen = ({ navigation }) => {
 
       if (likeError) {
         console.error('Erreur enregistrement like (Supabase RLS/DB):', likeError);
+      } else {
+        // Supprimer les anciennes notifications de Like de cet expéditeur pour éviter les doublons
+        await supabase
+          .from('notifications')
+          .delete()
+          .eq('user_id', currentProfile.id)
+          .eq('notifier_id', user.id)
+          .eq('type', 'like');
+
+        // Insérer la notification de Like
+        await supabase.from('notifications').insert({
+          user_id: currentProfile.id,
+          notifier_id: user.id,
+          type: 'like',
+          content: `a aimé votre profil.`,
+        });
       }
 
       // Vérifier le match mutuel
@@ -731,10 +749,26 @@ const HomeScreen = ({ navigation }) => {
     <View style={styles.container}>
       {/* En-tête */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Découvrir</Text>
-        <Text style={styles.headerCount}>
-          {filteredProfiles.length - currentIndex > 0 ? filteredProfiles.length - currentIndex : 0} profil{filteredProfiles.length - currentIndex > 1 ? 's' : ''}
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>Découvrir</Text>
+          <Text style={styles.headerCount}>
+            {filteredProfiles.length - currentIndex > 0 ? filteredProfiles.length - currentIndex : 0} profil{filteredProfiles.length - currentIndex > 1 ? 's' : ''}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.notificationBtn}
+          onPress={() => navigation.navigate('Notifications')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="heart-outline" size={28} color={COLORS.black} />
+          {unreadCount > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* AJOUT : Sélecteur de mode de vue Découverte / Carte géographique */}
@@ -1061,6 +1095,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 10,
+  },
+  notificationBtn: {
+    padding: 6,
+    position: 'relative',
+  },
+  notifBadge: {
+    position: 'absolute',
+    right: -4,
+    top: -2,
+    backgroundColor: '#FF2D55',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  notifBadgeText: {
+    color: COLORS.white,
+    fontSize: 9,
+    fontWeight: '800',
   },
   headerTitle: {
     fontSize: 28,

@@ -139,6 +139,27 @@ const useMessageStore = create((set, get) => ({
 
     if (error) throw error;
 
+    // Insérer également la notification de message
+    try {
+      // Supprimer les anciennes notifications de messages de cet expéditeur pour éviter les doublons
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', receiverId)
+        .eq('notifier_id', senderId)
+        .eq('type', 'message');
+
+      // Insérer la nouvelle notification de message unique
+      await supabase.from('notifications').insert({
+        user_id: receiverId,
+        notifier_id: senderId,
+        type: 'message',
+        content: 'vous a envoyé un message.',
+      });
+    } catch (notifErr) {
+      console.error('Erreur insertion notification message:', notifErr);
+    }
+
     // Mettre à jour le compteur quotidien uniquement pour les profils Homme
     if (!isFemale) {
       const today = new Date().toISOString().split('T')[0];
