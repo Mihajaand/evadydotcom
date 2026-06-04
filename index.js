@@ -1,4 +1,6 @@
 import { registerRootComponent } from 'expo';
+import { LogBox } from 'react-native';
+LogBox.ignoreLogs(['expo-notifications: Android Push notifications']);
 
 import App from './App';
 

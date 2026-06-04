@@ -1,9 +1,11 @@
+// metro.config.cjs
+// Metro configuration (CommonJS) – required because Expo loads this file via require()
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-// Redirige react-native-maps vers un stub sur le web (module natif non supporté)
+// Redirect react-native-maps to a stub on web (native module not supported)
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (platform === 'web' && moduleName === 'react-native-maps') {
     const origin = context.originModulePath || '';
@@ -32,5 +34,4 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 
 
 module.exports = config;
-
 

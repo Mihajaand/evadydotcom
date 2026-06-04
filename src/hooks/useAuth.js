@@ -1,16 +1,16 @@
-/**
- * Hook d'authentification
- * Écoute les changements de session Supabase et initialise l'auth
- */
 import { useEffect } from 'react';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import useMessageStore from '../store/messageStore';
+import useRealtimeNotifications from './useRealtimeNotifications';
 
 const useAuth = () => {
   const { user, profile, loading, initialize, setUser, fetchProfile, setLoading } = useAuthStore();
   const subscribeToMessages = useMessageStore((state) => state.subscribeToMessages);
   const fetchConversations = useMessageStore((state) => state.fetchConversations);
+
+  // Activer l'écoute des notifications temps réel (Likes, Messages, Signalements)
+  useRealtimeNotifications();
 
   useEffect(() => {
     // Initialiser la session au montage
@@ -55,6 +55,7 @@ const useAuth = () => {
 };
 
 export default useAuth;
+
 
 
 
