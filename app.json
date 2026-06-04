@@ -43,7 +43,8 @@
           "photosPermission": "E-VADY a besoin d'accéder à vos photos pour votre profil."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-notifications"
     ]
   }
 }

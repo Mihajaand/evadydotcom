@@ -1,6 +1,7 @@
 /**
  * Écran Profil - Affichage et édition du profil utilisateur
  * Galerie photos (max 6), paramètres, déconnexion
+ * Enrichi avec les informations personnelles (Taille, Profession, Croyances, Centres d'intérêt, Style de vie)
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { COLORS } from '../utils/constants';
 import { calculateAge } from '../utils/helpers';
 import { supabase } from '../supabase/client';
@@ -24,6 +26,23 @@ import useSubscriptionStore from '../store/subscriptionStore';
 import Input from '../components/Input';
 import Button from '../components/Button';
 import SkeletonPhotos from '../components/SkeletonPhotos';
+
+// Options pour les Tags
+const INTEREST_OPTIONS = ['Sport ⚽', 'Musique 🎵', 'Voyage ✈️', 'Cuisine 🍳', 'Cinéma 🎬', 'Lecture 📚', 'Jeux Vidéo 🎮', 'Art 🎨', 'Photo 📷', 'Nature 🌲', 'Autre 👤'];
+const BELIEF_OPTIONS = ['Chrétien ✝️', 'Musulman ☪️', 'Athée ⚛️', 'Spirituel 🧘', 'Autre 👤'];
+const LIFESTYLE_OPTIONS = ['Fêtard 🥳', 'Calme ☕', 'Sportif 🏋️', 'Végétarien 🥗', 'Aventurier ⛰️', 'Écolo 🌱'];
+const PROFESSION_OPTIONS = [
+  'Développeur 💻',
+  'Designer 🎨',
+  'Business / Entrepreneur 💼',
+  'Étudiant 📚',
+  'Enseignant 🏫',
+  'Médecin / Soignant 🩺',
+  'Ingénieur ⚙️',
+  'Artiste / Créateur 🎭',
+  'Freelance 💻',
+  'Autre 👤'
+];
 
 const ProfileScreen = ({ route, navigation }) => {
   const { user, profile: myProfile, logout, updateProfile } = useAuthStore();
@@ -40,8 +59,15 @@ const ProfileScreen = ({ route, navigation }) => {
   const [saving, setSaving] = useState(false);
   const [loadingPhotos, setLoadingPhotos] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  // AJOUT : État pour afficher un spinner sur l'avatar principal lors d'actions le concernant
   const [loadingAvatar, setLoadingAvatar] = useState(false);
+
+  // Nouvelles informations personnelles
+  const [profession, setProfession] = useState('');
+  const [customProfession, setCustomProfession] = useState('');
+  const [height, setHeight] = useState(170);
+  const [selectedInterests, setSelectedInterests] = useState([]);
+  const [selectedBeliefs, setSelectedBeliefs] = useState('');
+  const [selectedLifestyles, setSelectedLifestyles] = useState([]);
 
   // Charger les données au montage
   useEffect(() => {
@@ -50,6 +76,22 @@ const ProfileScreen = ({ route, navigation }) => {
         setProfile(myProfile);
         setFullName(myProfile.full_name || '');
         setBio(myProfile.bio || '');
+        if (myProfile.profession) {
+          if (PROFESSION_OPTIONS.includes(myProfile.profession)) {
+            setProfession(myProfile.profession);
+            setCustomProfession('');
+          } else {
+            setProfession('Autre 👤');
+            setCustomProfession(myProfile.profession);
+          }
+        } else {
+          setProfession('');
+          setCustomProfession('');
+        }
+        setHeight(myProfile.height ? parseInt(myProfile.height.replace(' cm', '')) : 170);
+        setSelectedInterests(myProfile.interests || []);
+        setSelectedBeliefs(myProfile.beliefs || '');
+        setSelectedLifestyles(myProfile.lifestyle || []);
       }
       if (user?.id) {
         fetchPhotos(user.id);
@@ -73,6 +115,22 @@ const ProfileScreen = ({ route, navigation }) => {
       setProfile(profileData);
       setFullName(profileData.full_name || '');
       setBio(profileData.bio || '');
+      if (profileData.profession) {
+        if (PROFESSION_OPTIONS.includes(profileData.profession)) {
+          setProfession(profileData.profession);
+          setCustomProfession('');
+        } else {
+          setProfession('Autre 👤');
+          setCustomProfession(profileData.profession);
+        }
+      } else {
+        setProfession('');
+        setCustomProfession('');
+      }
+      setHeight(profileData.height ? parseInt(profileData.height.replace(' cm', '')) : 170);
+      setSelectedInterests(profileData.interests || []);
+      setSelectedBeliefs(profileData.beliefs || '');
+      setSelectedLifestyles(profileData.lifestyle || []);
 
       const { data: photosData, error: photosError } = await supabase
         .from('photos')
@@ -130,10 +188,9 @@ const ProfileScreen = ({ route, navigation }) => {
 
     if (result.canceled) return;
 
-    // MODIFICATION : Déterminer si c'est la première photo (qui sera donc photo de profil)
     const isProfile = photos.length === 0;
     if (isProfile) {
-      setLoadingAvatar(true); // MODIFICATION : Affiche le spinner sur l'avatar principal
+      setLoadingAvatar(true);
     }
 
     try {
@@ -141,7 +198,6 @@ const ProfileScreen = ({ route, navigation }) => {
       const fileExt = file.uri.split('.').pop().toLowerCase();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
-      // Convertir le base64 en ArrayBuffer pour l'upload
       const base64 = file.base64;
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
@@ -149,7 +205,6 @@ const ProfileScreen = ({ route, navigation }) => {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      // Upload vers Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('photos')
         .upload(fileName, bytes.buffer, {
@@ -159,12 +214,10 @@ const ProfileScreen = ({ route, navigation }) => {
 
       if (uploadError) throw uploadError;
 
-      // Obtenir l'URL publique
       const { data: urlData } = supabase.storage
         .from('photos')
         .getPublicUrl(fileName);
 
-      // Enregistrer dans la table photos
       const { error: insertError } = await supabase
         .from('photos')
         .insert({
@@ -175,41 +228,38 @@ const ProfileScreen = ({ route, navigation }) => {
 
       if (insertError) throw insertError;
 
-      // Mettre à jour l'avatar si c'est la photo de profil
       if (isProfile) {
         await updateProfile({ avatar_url: urlData.publicUrl });
       }
 
       await fetchPhotos();
-      // MODIFICATION : Retrait de l'alerte de succès pour une expérience fluide
     } catch (error) {
       Alert.alert('Erreur', 'Impossible d\'ajouter la photo');
     } finally {
-      setLoadingAvatar(false); // MODIFICATION : Arrête le spinner de l'avatar principal
+      setLoadingAvatar(false);
     }
   };
 
   /**
-   * AJOUT : Ajouter/modifier directement la photo de profil depuis le bouton de l'avatar principal
+   * Modifier directement la photo de profil depuis le bouton de l'avatar principal
    */
   const handleUploadProfilePhoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
-      aspect: [1, 1], // Format carré parfait pour une photo de profil
+      aspect: [1, 1],
       quality: 0.8,
       base64: true,
     });
 
     if (result.canceled) return;
 
-    setLoadingAvatar(true); // MODIFICATION : Affiche le spinner sur l'avatar principal
+    setLoadingAvatar(true);
     try {
       const file = result.assets[0];
       const fileExt = file.uri.split('.').pop().toLowerCase();
       const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
 
-      // Convertir le base64 en ArrayBuffer pour l'upload
       const base64 = file.base64;
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
@@ -217,7 +267,6 @@ const ProfileScreen = ({ route, navigation }) => {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      // Upload vers Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('photos')
         .upload(fileName, bytes.buffer, {
@@ -227,18 +276,15 @@ const ProfileScreen = ({ route, navigation }) => {
 
       if (uploadError) throw uploadError;
 
-      // Obtenir l'URL publique
       const { data: urlData } = supabase.storage
         .from('photos')
         .getPublicUrl(fileName);
 
-      // MODIFICATION : Désélectionner l'ancienne photo de profil dans la base de données
       await supabase
         .from('photos')
         .update({ is_profile: false })
         .eq('user_id', user.id);
 
-      // MODIFICATION : Enregistrer la nouvelle photo de profil
       const { error: insertError } = await supabase
         .from('photos')
         .insert({
@@ -249,15 +295,12 @@ const ProfileScreen = ({ route, navigation }) => {
 
       if (insertError) throw insertError;
 
-      // MODIFICATION : Mettre à jour le profil de l'utilisateur avec le nouvel avatar
       await updateProfile({ avatar_url: urlData.publicUrl });
-
       await fetchPhotos();
-      // MODIFICATION : Retrait de l'alerte succès conformément à la demande
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de modifier la photo de profil');
     } finally {
-      setLoadingAvatar(false); // MODIFICATION : Désactive le spinner
+      setLoadingAvatar(false);
     }
   };
 
@@ -274,48 +317,55 @@ const ProfileScreen = ({ route, navigation }) => {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
-            // Déterminer si la photo supprimée est celle du profil
             const photoToDelete = photos.find((p) => p.id === photoId);
             const isDeletingProfile = photoToDelete?.is_profile;
 
             if (isDeletingProfile) {
-              setLoadingAvatar(true); // MODIFICATION : Active le spinner sur l'avatar principal pendant la suppression
+              setLoadingAvatar(true);
             }
 
             try {
-              // Supprimer de la table photos
               await supabase.from('photos').delete().eq('id', photoId);
               
-              // MODIFICATION : Si c'était le profil, mettre à jour l'avatar de l'utilisateur
               if (isDeletingProfile) {
                 const remainingPhotos = photos.filter((p) => p.id !== photoId);
-                const nextProfilePhoto = remainingPhotos[0]; // Prochaine photo dispo
+                const nextProfilePhoto = remainingPhotos[0];
 
                 if (nextProfilePhoto) {
-                  // Mettre à jour dans la table photos
                   await supabase
                     .from('photos')
                     .update({ is_profile: true })
                     .eq('id', nextProfilePhoto.id);
                   
-                  // Mettre à jour l'avatar du profil utilisateur
                   await updateProfile({ avatar_url: nextProfilePhoto.url });
                 } else {
-                  // Plus aucune photo, réinitialiser l'avatar à null
                   await updateProfile({ avatar_url: null });
                 }
               }
 
-              setSelectedPhoto(null); // Ferme la vue plein écran si ouverte
+              setSelectedPhoto(null);
               await fetchPhotos();
             } catch (error) {
               Alert.alert('Erreur', 'Impossible de supprimer');
             } finally {
-              setLoadingAvatar(false); // MODIFICATION : Arrête le spinner sur l'avatar principal
+              setLoadingAvatar(false);
             }
           },
         },
       ]
+    );
+  };
+
+  // Gestion des Tags en mode édition
+  const toggleInterest = (interest) => {
+    setSelectedInterests((prev) =>
+      prev.includes(interest) ? prev.filter((i) => i !== interest) : [...prev, interest]
+    );
+  };
+
+  const toggleLifestyle = (lifestyle) => {
+    setSelectedLifestyles((prev) =>
+      prev.includes(lifestyle) ? prev.filter((l) => l !== lifestyle) : [...prev, lifestyle]
     );
   };
 
@@ -333,6 +383,11 @@ const ProfileScreen = ({ route, navigation }) => {
       await updateProfile({
         full_name: fullName.trim(),
         bio: bio.trim(),
+        profession: profession === 'Autre 👤' ? customProfession.trim() : profession,
+        height: height ? `${height} cm` : null,
+        interests: selectedInterests,
+        beliefs: selectedBeliefs,
+        lifestyle: selectedLifestyles,
       });
       setEditing(false);
       Alert.alert('Succès', 'Profil mis à jour !');
@@ -344,7 +399,7 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   /**
-   * Déconnexion avec confirmation
+   * Déconnexion
    */
   const handleLogout = () => {
     Alert.alert(
@@ -400,10 +455,8 @@ const ProfileScreen = ({ route, navigation }) => {
 
       {/* Avatar principal */}
       <View style={styles.avatarSection}>
-        {/* MODIFICATION : Conteneur pour englober l'image de profil et le bouton caméra */}
         <View style={styles.avatarContainer}>
           {loadingAvatar ? (
-            /* MODIFICATION : Chargement qui tourne au centre du rond de profil avant affichage/mise à jour/suppression */
             <View style={styles.avatarLoadingContainer}>
               <ActivityIndicator size="large" color={COLORS.primary} />
             </View>
@@ -417,7 +470,6 @@ const ProfileScreen = ({ route, navigation }) => {
               style={styles.mainAvatar}
             />
           )}
-          {/* MODIFICATION : Bouton icône pour modifier/ajouter directement la photo de profil */}
           {isOwnProfile && (
             <TouchableOpacity
               style={styles.editAvatarButton}
@@ -435,7 +487,6 @@ const ProfileScreen = ({ route, navigation }) => {
           {profile?.gender === 'MALE' ? '👨 Homme' : '👩 Femme'}
         </Text>
 
-        {/* Badge abonnement (Homme uniquement) */}
         {profile?.gender === 'MALE' && (
           <TouchableOpacity
             style={[
@@ -471,21 +522,187 @@ const ProfileScreen = ({ route, navigation }) => {
             multiline
             icon="text-outline"
           />
+          {/* Sélection de Profession */}
+          <Text style={styles.label}>Profession / Études</Text>
+          <View style={styles.chipsContainer}>
+            {PROFESSION_OPTIONS.map((p) => {
+              const active = profession === p;
+              return (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => setProfession(p)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {p}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {profession === 'Autre 👤' && (
+            <Input
+              label="Précisez votre profession"
+              value={customProfession}
+              onChangeText={setCustomProfession}
+              placeholder="Ex: Boulanger, Comptable..."
+              icon="briefcase-outline"
+            />
+          )}
+
+          {/* Curseur de Taille */}
+          <View style={{ marginVertical: 16 }}>
+            <Text style={styles.label}>Taille : {height} cm</Text>
+            <Slider
+              style={{ width: '100%', height: 40 }}
+              minimumValue={140}
+              maximumValue={220}
+              step={1}
+              value={height}
+              onValueChange={(val) => setHeight(val)}
+              minimumTrackTintColor={COLORS.primary}
+              maximumTrackTintColor={COLORS.lightGray}
+              thumbTintColor={COLORS.primary}
+            />
+          </View>
+
+          {/* Séléctions de Tags en mode Édition */}
+          <Text style={styles.label}>Centres d'intérêt</Text>
+          <View style={styles.chipsContainer}>
+            {INTEREST_OPTIONS.map((interest) => {
+              const active = selectedInterests.includes(interest);
+              return (
+                <TouchableOpacity
+                  key={interest}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => toggleInterest(interest)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {interest}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={styles.label}>Croyances</Text>
+          <View style={styles.chipsContainer}>
+            {BELIEF_OPTIONS.map((belief) => {
+              const active = selectedBeliefs === belief;
+              return (
+                <TouchableOpacity
+                  key={belief}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => setSelectedBeliefs(active ? '' : belief)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {belief}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={styles.label}>Style de vie</Text>
+          <View style={styles.chipsContainer}>
+            {LIFESTYLE_OPTIONS.map((lifestyle) => {
+              const active = selectedLifestyles.includes(lifestyle);
+              return (
+                <TouchableOpacity
+                  key={lifestyle}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => toggleLifestyle(lifestyle)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {lifestyle}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <Button
             title="Sauvegarder"
             onPress={handleSave}
             loading={saving}
+            style={{ marginTop: 16 }}
           />
         </View>
       )}
 
-      {/* Bio (mode visualisation) */}
-      {!editing && profile?.bio ? (
-        <View style={styles.bioSection}>
-          <Text style={styles.sectionTitle}>À propos</Text>
-          <Text style={styles.bioText}>{profile.bio}</Text>
+      {/* Mode Visualisation */}
+      {!editing && (
+        <View>
+          {/* Bio */}
+          {profile?.bio ? (
+            <View style={styles.bioSection}>
+              <Text style={styles.sectionTitle}>À propos</Text>
+              <Text style={styles.bioText}>{profile.bio}</Text>
+            </View>
+          ) : null}
+
+          {/* Caractéristiques Personnelles */}
+          {(profile?.profession || profile?.height || profile?.beliefs || (profile?.interests && profile?.interests.length > 0) || (profile?.lifestyle && profile?.lifestyle.length > 0)) ? (
+            <View style={styles.detailsSection}>
+              <Text style={styles.sectionTitle}>Informations personnelles</Text>
+              
+              <View style={styles.infoRowGrid}>
+                {profile?.height ? (
+                  <View style={styles.infoBadge}>
+                    <Ionicons name="resize-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.infoBadgeText}>{profile.height}</Text>
+                  </View>
+                ) : null}
+                
+                {profile?.profession ? (
+                  <View style={styles.infoBadge}>
+                    <Ionicons name="briefcase-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.infoBadgeText}>{profile.profession}</Text>
+                  </View>
+                ) : null}
+
+                {profile?.beliefs ? (
+                  <View style={styles.infoBadge}>
+                    <Ionicons name="bookmark-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.infoBadgeText}>{profile.beliefs}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {profile?.interests && profile.interests.length > 0 ? (
+                <View style={styles.tagsGroup}>
+                  <Text style={styles.subSectionTitle}>Centres d'intérêt</Text>
+                  <View style={styles.tagsContainer}>
+                    {profile.interests.map((tag) => (
+                      <View key={tag} style={styles.tagChip}>
+                        <Text style={styles.tagChipText}>{tag}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              {profile?.lifestyle && profile.lifestyle.length > 0 ? (
+                <View style={styles.tagsGroup}>
+                  <Text style={styles.subSectionTitle}>Style de vie</Text>
+                  <View style={styles.tagsContainer}>
+                    {profile.lifestyle.map((tag) => (
+                      <View key={tag} style={[styles.tagChip, styles.lifestyleTagBg]}>
+                        <Text style={styles.tagChipText}>{tag}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
-      ) : null}
+      )}
 
       {/* Galerie photos */}
       <View style={styles.photosSection}>
@@ -510,7 +727,6 @@ const ProfileScreen = ({ route, navigation }) => {
                 </TouchableOpacity>
               ))}
 
-              {/* Bouton ajouter */}
               {isOwnProfile && photos.length < 6 && (
                 <TouchableOpacity style={styles.addPhotoBtn} onPress={handleAddPhoto}>
                   <Ionicons name="add" size={32} color={COLORS.primary} />
@@ -533,7 +749,6 @@ const ProfileScreen = ({ route, navigation }) => {
         onRequestClose={() => setSelectedPhoto(null)}
       >
         <View style={styles.modalContainer}>
-          {/* En-tête du Modal */}
           <View style={styles.modalHeader}>
             <TouchableOpacity
               style={styles.modalCloseButton}
@@ -556,7 +771,6 @@ const ProfileScreen = ({ route, navigation }) => {
             )}
           </View>
 
-          {/* Zone de l'image */}
           {selectedPhoto && (
             <View style={styles.modalImageContainer}>
               <Image
@@ -577,7 +791,6 @@ const ProfileScreen = ({ route, navigation }) => {
       {/* Actions */}
       {isOwnProfile && (
         <View style={styles.actionsSection}>
-          {/* Abonnement (Homme uniquement) */}
           {profile?.gender === 'MALE' && (
             <TouchableOpacity
               style={styles.actionRow}
@@ -591,7 +804,6 @@ const ProfileScreen = ({ route, navigation }) => {
             </TouchableOpacity>
           )}
 
-          {/* Déconnexion */}
           <TouchableOpacity style={styles.actionRow} onPress={handleLogout}>
             <View style={styles.actionLeft}>
               <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
@@ -708,6 +920,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 20,
   },
+  label: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.black,
+    marginBottom: 10,
+    marginTop: 16,
+  },
   bioSection: {
     paddingHorizontal: 20,
     marginBottom: 20,
@@ -722,6 +941,85 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.darkGray,
     lineHeight: 22,
+  },
+  detailsSection: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  infoRowGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  infoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    gap: 6,
+  },
+  infoBadgeText: {
+    fontSize: 14,
+    color: COLORS.darkGray,
+    fontWeight: '600',
+  },
+  tagsGroup: {
+    marginTop: 14,
+  },
+  subSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.black,
+    marginBottom: 8,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  tagChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(241, 62, 147, 0.08)',
+  },
+  lifestyleTagBg: {
+    backgroundColor: 'rgba(0, 149, 246, 0.08)',
+  },
+  tagChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.darkGray,
+  },
+  chipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+  },
+  chipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.darkGray,
+  },
+  chipTextActive: {
+    color: COLORS.white,
+    fontWeight: '700',
   },
   photosSection: {
     paddingHorizontal: 20,

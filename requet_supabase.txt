@@ -159,3 +159,15 @@ using (auth.uid() = user_id);
 
 -- Activer temps réel sur la table
 alter publication supabase_realtime add table notifications;
+
+
+/**
+*mis a jour table profiles pour les colonnes manquantes
+**/
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS height text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profession text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS interests text[];
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS lifestyle text[];
+
+-- Recharge le cache
+NOTIFY pgrst, 'reload schema';
