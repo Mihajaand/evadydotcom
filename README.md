@@ -114,3 +114,25 @@ EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_51SOa0NLkP8GG04LfDC4E8cksxU6wiBIShbgA
 EXPO_PUBLIC_STRIPE_PRODUCT_BASIC=prod_UKSA5byhwMvyNq
 EXPO_PUBLIC_STRIPE_PRODUCT_PREMIUM=prod_UKSAffBD6qq8Q6
 EXPO_PUBLIC_STRIPE_PRODUCT_VIP=prod_UKSBmT4H0Q8BTT
+
+# pour l'inscription
+1. Créez un projet sur [https://dashboard.emailjs.com/]
+
+EXPO_PUBLIC_EMAILJS_SERVICE_ID=service_by97jni
+EXPO_PUBLIC_EMAILJS_TEMPLATE_ID=template_vznsj2m
+EXPO_PUBLIC_EMAILJS_PUBLIC_KEY=lhNTLB7ket2ged903
+EXPO_PUBLIC_EMAILJS_PRIVATE_KEY=JYmOy0I9kye_6q1xpQYz8
+
+2. Créez email template pour emailJS
+
+Bonjour {{to_name}},
+
+Merci de vous inscrire sur E-VADY. 
+
+Voici votre code de vérification pour finaliser votre inscription :
+
+👉 {{verification_code}} 👈
+
+Ce code est confidentiel et ne doit pas être partagé.
+
+L'équipe E-VADY
