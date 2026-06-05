@@ -7,33 +7,53 @@
  * - La sauvegarde du token dans Supabase (profiles.push_token)
  * - Les listeners de réception (foreground)
  */
-import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform, Alert } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from '../supabase/client';
 
-// Configuration du comportement des notifications reçues en avant-plan
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,   // Afficher la bannière même si l'app est ouverte
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// Détecter si on tourne dans l'application Expo Go
+const isExpoGo =
+  Constants.executionEnvironment === 'storeClient' ||
+  Constants.appOwnership === 'expo';
+
+// Importer expo-notifications uniquement hors d'Expo Go pour éviter le crash natif SDK 53+
+let Notifications = null;
+if (!isExpoGo) {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (error) {
+    console.warn('[Notif] Impossible de charger expo-notifications:', error.message);
+  }
+}
+
+// Configuration du comportement des notifications reçues en avant-plan (uniquement hors Expo Go)
+if (!isExpoGo && Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,   // Afficher la bannière même si l'app est ouverte
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 /**
  * Crée le canal de notification Android (obligatoire pour Android 8+)
  */
 const createAndroidChannel = async () => {
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('evady-default', {
-      name: 'E-VADY Notifications',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#F13E93',
-      sound: true,
-    });
+  if (Platform.OS === 'android' && !isExpoGo && Notifications) {
+    try {
+      await Notifications.setNotificationChannelAsync('evady-default', {
+        name: 'E-VADY Notifications',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#F13E93',
+        sound: true,
+      });
+    } catch (e) {
+      console.warn('[Notif] Erreur lors de la création du canal Android:', e.message);
+    }
   }
 };
 
@@ -45,6 +65,11 @@ const createAndroidChannel = async () => {
  * @returns {string|null} Le token Expo Push ou null si refusé
  */
 export const registerForPushNotifications = async (userId) => {
+  if (isExpoGo || !Notifications) {
+    console.log('[Notif] Exécution dans Expo Go. Les notifications push natives sont désactivées pour éviter des erreurs.');
+    return null;
+  }
+
   try {
     // Créer le canal Android
     await createAndroidChannel();
@@ -75,7 +100,7 @@ export const registerForPushNotifications = async (userId) => {
       Constants.easConfig?.projectId;
 
     if (!projectId) {
-      console.log('[Notif] Aucun projectId EAS trouvé. L\'enregistrement du token de push est ignoré (normal en Expo Go sans projet EAS).');
+      console.log('[Notif] Aucun projectId EAS trouvé. L\'enregistrement du token de push est ignoré.');
       return null;
     }
 
@@ -112,6 +137,10 @@ export const registerForPushNotifications = async (userId) => {
  * @returns {function} Fonction de nettoyage à appeler au démontage
  */
 export const setupNotificationListeners = (onNotificationTapped) => {
+  if (isExpoGo || !Notifications) {
+    return () => {};
+  }
+
   // Notification reçue en foreground (app ouverte)
   const receivedSubscription = Notifications.addNotificationReceivedListener(
     (notification) => {

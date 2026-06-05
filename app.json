@@ -45,6 +45,11 @@
       ],
       "expo-web-browser",
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a6e09d96-5781-4306-8f64-3849bce8c17c"
+      }
+    }
   }
 }

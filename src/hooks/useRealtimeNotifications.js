@@ -1,9 +1,24 @@
 import { useEffect } from 'react';
-import * as Notifications from 'expo-notifications';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import useNotificationStore from '../store/notificationStore';
 import { registerForPushNotifications, setupNotificationListeners } from '../utils/notifications';
+import Constants from 'expo-constants';
+
+// Détecter si on tourne dans l'application Expo Go
+const isExpoGo =
+  Constants.executionEnvironment === 'storeClient' ||
+  Constants.appOwnership === 'expo';
+
+// Charger expo-notifications uniquement hors d'Expo Go pour éviter le crash natif SDK 53+
+let Notifications = null;
+if (!isExpoGo) {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (error) {
+    console.warn('[RealtimeNotif] Impossible de charger expo-notifications:', error.message);
+  }
+}
 
 const useRealtimeNotifications = () => {
   const user = useAuthStore((state) => state.user);
@@ -64,15 +79,19 @@ const useRealtimeNotifications = () => {
                 title = '⚠️ Votre profil a été signalé';
               }
 
-              // Déclencher la notification native en haut du téléphone
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: title,
-                  body: bodyText,
-                  data: enrichedNotif,
-                },
-                trigger: null,
-              });
+              // Déclencher la notification native en haut du téléphone (uniquement hors Expo Go)
+              if (!isExpoGo && Notifications) {
+                await Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: title,
+                    body: bodyText,
+                    data: enrichedNotif,
+                  },
+                  trigger: null,
+                });
+              } else {
+                console.log('[RealtimeNotif] Notification reçue via Supabase (affichage natif désactivé sous Expo Go):', title, bodyText);
+              }
             } catch (err) {
               console.error('Erreur traitement realtime notification:', err);
             }

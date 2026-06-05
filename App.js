@@ -17,7 +17,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import LoadingScreen from './src/components/LoadingScreen';
 import useAuth from './src/hooks/useAuth';
 import { LogBox } from 'react-native';
-LogBox.ignoreLogs(['expo-notifications: Android Push notifications']);
+LogBox.ignoreLogs(['expo-notifications:']);
 
 
 export default function App() {

@@ -5,11 +5,11 @@ const path = require('path');
 // Load base expo config from app.json
 const baseConfig = require('./app.json').expo;
 
-let localExtra = {};
+let localConfig = {};
 try {
   const localPath = path.resolve(__dirname, 'app.local.json');
   if (fs.existsSync(localPath)) {
-    localExtra = require(localPath).extra;
+    localConfig = require(localPath);
   }
 } catch (e) {
   // ignore if file not present
@@ -17,8 +17,10 @@ try {
 
 module.exports = {
   ...baseConfig,
+  ...localConfig,
   extra: {
     ...baseConfig.extra,
-    ...localExtra,
+    ...(localConfig.extra || {}),
   },
 };
+
