@@ -14,10 +14,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
-  Alert,
   Image,
   ActivityIndicator,
 } from 'react-native';
+import { customAlert } from '../utils/helpers';
+
+const Alert = {
+  alert: customAlert,
+};
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -251,20 +255,34 @@ const SignupScreen = ({ navigation }) => {
       const currentUserId = createdUserSession.user.id;
 
       // 2. Uploader l'avatar dans le stockage public
-      const fileExt = profilePhoto.uri.split('.').pop().toLowerCase();
-      const fileName = `${currentUserId}/profile_${Date.now()}.${fileExt}`;
+      let fileExt = 'jpg';
+      let uploadBody;
+      let contentType = 'image/jpeg';
 
-      const base64 = profilePhoto.base64;
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      if (Platform.OS === 'web') {
+        const response = await fetch(profilePhoto.uri);
+        const blob = await response.blob();
+        uploadBody = blob;
+        contentType = blob.type || 'image/jpeg';
+        fileExt = contentType.split('/').pop() || 'jpg';
+      } else {
+        fileExt = profilePhoto.uri.split('.').pop().toLowerCase();
+        const base64 = profilePhoto.base64;
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        uploadBody = bytes.buffer;
+        contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
       }
+
+      const fileName = `${currentUserId}/profile_${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
-        .upload(fileName, bytes.buffer, {
-          contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+        .upload(fileName, uploadBody, {
+          contentType,
           upsert: false,
         });
 
@@ -388,28 +406,59 @@ const SignupScreen = ({ navigation }) => {
               ))}
             </View>
 
-            <Text style={styles.label}>Date de naissance</Text>
-            <TouchableOpacity
-              style={styles.datePicker}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Ionicons name="calendar-outline" size={20} color={COLORS.gray} />
-              <Text style={[styles.dateText, !birthdate && styles.placeholder]}>
-                {birthdate ? formatDate(birthdate) : 'Sélectionner une date'}
-              </Text>
-            </TouchableOpacity>
+             <Text style={styles.label}>Date de naissance</Text>
+            {Platform.OS === 'web' ? (
+              <input
+                type="date"
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: COLORS.lightGray,
+                  borderRadius: 12,
+                  padding: 14,
+                  marginBottom: 16,
+                  border: 'none',
+                  fontSize: 16,
+                  fontFamily: 'inherit',
+                  color: birthdate ? COLORS.black : COLORS.gray,
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+                max={new Date(new Date().getFullYear() - 18, 11, 31).toISOString().split('T')[0]}
+                value={birthdate ? birthdate.toISOString().split('T')[0] : ''}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setBirthdate(new Date(e.target.value));
+                  } else {
+                    setBirthdate(null);
+                  }
+                }}
+              />
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.datePicker}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={COLORS.gray} />
+                  <Text style={[styles.dateText, !birthdate && styles.placeholder]}>
+                    {birthdate ? formatDate(birthdate) : 'Sélectionner une date'}
+                  </Text>
+                </TouchableOpacity>
 
-            <DateTimePickerModal
-              isVisible={showDatePicker}
-              mode="date"
-              onConfirm={(date) => {
-                setBirthdate(date);
-                setShowDatePicker(false);
-              }}
-              onCancel={() => setShowDatePicker(false)}
-              maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
-              locale="fr"
-            />
+                <DateTimePickerModal
+                  isVisible={showDatePicker}
+                  mode="date"
+                  onConfirm={(date) => {
+                    setBirthdate(date);
+                    setShowDatePicker(false);
+                  }}
+                  onCancel={() => setShowDatePicker(false)}
+                  maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
+                  locale="fr"
+                />
+              </>
+            )}
 
             <View style={styles.locationInfo}>
               <Ionicons

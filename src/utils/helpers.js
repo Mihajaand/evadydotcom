@@ -104,3 +104,34 @@ export const getCountryFromCoords = (lat, lng) => {
   return 'Autre';
 };
 
+import { Alert, Platform } from 'react-native';
+
+/**
+ * Alerte multiplateforme (iOS/Android utilise Alert.alert, Web utilise window.alert/confirm)
+ */
+export const customAlert = (title, message, buttons) => {
+  if (Platform.OS === 'web') {
+    if (buttons && buttons.length > 0) {
+      const cancelButton = buttons.find((b) => b.style === 'cancel');
+      const confirmButton = buttons.find((b) => b.style !== 'cancel') || buttons[0];
+
+      if (cancelButton) {
+        const confirmed = window.confirm(`${title}\n\n${message}`);
+        if (confirmed) {
+          if (confirmButton && confirmButton.onPress) confirmButton.onPress();
+        } else {
+          if (cancelButton && cancelButton.onPress) cancelButton.onPress();
+        }
+      } else {
+        window.alert(`${title}\n\n${message}`);
+        if (confirmButton && confirmButton.onPress) confirmButton.onPress();
+      }
+    } else {
+      window.alert(`${title}\n\n${message}`);
+    }
+  } else {
+    Alert.alert(title, message, buttons);
+  }
+};
+
+

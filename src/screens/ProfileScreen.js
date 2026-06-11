@@ -11,10 +11,14 @@ import {
   ScrollView,
   Image,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Modal,
 } from 'react-native';
+import { customAlert } from '../utils/helpers';
+
+const Alert = {
+  alert: customAlert,
+};
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
@@ -195,20 +199,34 @@ const ProfileScreen = ({ route, navigation }) => {
 
     try {
       const file = result.assets[0];
-      const fileExt = file.uri.split('.').pop().toLowerCase();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      let fileExt = 'jpg';
+      let uploadBody;
+      let contentType = 'image/jpeg';
 
-      const base64 = file.base64;
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      if (Platform.OS === 'web') {
+        const response = await fetch(file.uri);
+        const blob = await response.blob();
+        uploadBody = blob;
+        contentType = blob.type || 'image/jpeg';
+        fileExt = contentType.split('/').pop() || 'jpg';
+      } else {
+        fileExt = file.uri.split('.').pop().toLowerCase();
+        const base64 = file.base64;
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        uploadBody = bytes.buffer;
+        contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
       }
+
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
-        .upload(fileName, bytes.buffer, {
-          contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+        .upload(fileName, uploadBody, {
+          contentType,
           upsert: false,
         });
 
@@ -257,20 +275,34 @@ const ProfileScreen = ({ route, navigation }) => {
     setLoadingAvatar(true);
     try {
       const file = result.assets[0];
-      const fileExt = file.uri.split('.').pop().toLowerCase();
-      const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
+      let fileExt = 'jpg';
+      let uploadBody;
+      let contentType = 'image/jpeg';
 
-      const base64 = file.base64;
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      if (Platform.OS === 'web') {
+        const response = await fetch(file.uri);
+        const blob = await response.blob();
+        uploadBody = blob;
+        contentType = blob.type || 'image/jpeg';
+        fileExt = contentType.split('/').pop() || 'jpg';
+      } else {
+        fileExt = file.uri.split('.').pop().toLowerCase();
+        const base64 = file.base64;
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        uploadBody = bytes.buffer;
+        contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
       }
+
+      const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
-        .upload(fileName, bytes.buffer, {
-          contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+        .upload(fileName, uploadBody, {
+          contentType,
           upsert: false,
         });
 
