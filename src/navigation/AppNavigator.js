@@ -20,6 +20,10 @@ import useMessageStore from '../store/messageStore';
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
 
+// Écrans Admin
+import AdminLoginScreen from '../screens/AdminLoginScreen';
+import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+
 // Écrans principaux
 import HomeScreen from '../screens/HomeScreen';
 import SearchScreen from '../screens/SearchScreen';
@@ -44,6 +48,17 @@ const AuthStack = () => (
   >
     <Stack.Screen name="Login" component={LoginScreen} />
     <Stack.Screen name="Signup" component={SignupScreen} />
+    {/* Routes admin — accessibles sans session Supabase */}
+    <Stack.Screen
+      name="AdminLogin"
+      component={AdminLoginScreen}
+      options={{ contentStyle: { backgroundColor: '#0D0D0D' } }}
+    />
+    <Stack.Screen
+      name="AdminDashboard"
+      component={AdminDashboardScreen}
+      options={{ contentStyle: { backgroundColor: '#0D0D0D' } }}
+    />
   </Stack.Navigator>
 );
 

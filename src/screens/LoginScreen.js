@@ -12,12 +12,15 @@ import {
   Platform,
   Image,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../utils/constants';
+import { customAlert } from '../utils/helpers';
 import useAuthStore from '../store/authStore';
 import Input from '../components/Input';
 import Button from '../components/Button';
+
+const Alert = { alert: customAlert };
 
 const LoginScreen = ({ navigation }) => {
   // État du formulaire
@@ -74,6 +77,15 @@ const LoginScreen = ({ navigation }) => {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {/* Badge Admin discret — haut à droite */}
+      <TouchableOpacity
+        style={styles.adminBadge}
+        onPress={() => navigation.navigate('AdminLogin')}
+        activeOpacity={0.6}
+      >
+        <Ionicons name="shield" size={16} color="rgba(255,255,255,0.5)" />
+      </TouchableOpacity>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -139,6 +151,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
+  },
+  // Badge admin discret — coin haut droit
+  adminBadge: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 54 : 36,
+    right: 16,
+    zIndex: 99,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(100,100,100,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   scrollContent: {
     flexGrow: 1,
