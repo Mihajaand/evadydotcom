@@ -1,7 +1,6 @@
 /**
- * Écran de Connexion Admin — Style Premium Dark
- * Vérification des identifiants hardcodés via adminStore
- * Aucun appel Supabase Auth
+ * AdminLoginScreen — Connexion Admin
+ * Thème identique à l'application principale (blanc, rose #F13E93)
  */
 import React, { useState } from 'react';
 import {
@@ -14,6 +13,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   ScrollView,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../utils/constants';
@@ -23,9 +23,9 @@ import useAdminStore from '../store/adminStore';
 const Alert = { alert: customAlert };
 
 const AdminLoginScreen = ({ navigation }) => {
-  const [login, setLogin] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [login,        setLogin]        = useState('');
+  const [password,     setPassword]     = useState('');
+  const [loading,      setLoading]      = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const adminLogin = useAdminStore((state) => state.adminLogin);
@@ -41,19 +41,16 @@ const AdminLoginScreen = ({ navigation }) => {
     }
 
     setLoading(true);
-
-    // Petit délai simulé pour UX (empêche brute force rapide)
     setTimeout(() => {
       const success = adminLogin(login.trim(), password);
       setLoading(false);
-
       if (success) {
         navigation.replace('AdminDashboard');
       } else {
-        Alert.alert('Accès refusé', 'Identifiants incorrects');
+        Alert.alert('Accès refusé', 'Identifiant ou mot de passe incorrect');
         setPassword('');
       }
-    }, 800);
+    }, 700);
   };
 
   return (
@@ -64,55 +61,60 @@ const AdminLoginScreen = ({ navigation }) => {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {/* Bouton retour */}
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={22} color="#888" />
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={20} color={COLORS.black} />
         </TouchableOpacity>
 
-        {/* Icône bouclier */}
-        <View style={styles.iconContainer}>
-          <View style={styles.shieldBg}>
-            <Ionicons name="shield-checkmark" size={56} color="#FF3B3B" />
+        {/* Logo + icône bouclier */}
+        <View style={styles.logoSection}>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <View style={styles.shieldRow}>
+            <View style={styles.shieldIcon}>
+              <Ionicons name="shield-checkmark" size={20} color={COLORS.white} />
+            </View>
+            <Text style={styles.adminLabel}>ESPACE ADMIN</Text>
           </View>
+          <Text style={styles.title}>E-VADY</Text>
+          <Text style={styles.subtitle}>Panneau d'administration sécurisé</Text>
         </View>
-
-        <Text style={styles.title}>Administration</Text>
-        <Text style={styles.subtitle}>Accès restreint — Personnel autorisé uniquement</Text>
 
         {/* Formulaire */}
         <View style={styles.form}>
-          {/* Champ Login */}
+          {/* Identifiant */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Identifiant</Text>
+            <Text style={styles.label}>Identifiant Admin</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons name="person-outline" size={18} color={COLORS.gray} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 value={login}
                 onChangeText={setLogin}
-                placeholder="Identifiant admin"
-                placeholderTextColor="#555"
+                placeholder="Identifiant"
+                placeholderTextColor={COLORS.gray}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
             </View>
           </View>
 
-          {/* Champ Mot de passe */}
+          {/* Mot de passe */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Mot de passe</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons name="lock-closed-outline" size={18} color={COLORS.gray} style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, { flex: 1 }]}
                 value={password}
                 onChangeText={setPassword}
                 placeholder="••••••••••"
-                placeholderTextColor="#555"
+                placeholderTextColor={COLORS.gray}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -120,25 +122,25 @@ const AdminLoginScreen = ({ navigation }) => {
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
                 <Ionicons
                   name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#666"
+                  size={18}
+                  color={COLORS.gray}
                 />
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Bouton connexion */}
+          {/* Bouton */}
           <TouchableOpacity
-            style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
+            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
             onPress={handleAdminLogin}
             disabled={loading}
             activeOpacity={0.8}
           >
             {loading ? (
-              <ActivityIndicator color="#FFF" size="small" />
+              <ActivityIndicator color={COLORS.white} size="small" />
             ) : (
               <>
-                <Ionicons name="log-in-outline" size={20} color="#FFF" />
+                <Ionicons name="shield-checkmark-outline" size={18} color={COLORS.white} />
                 <Text style={styles.loginBtnText}>Accéder au Dashboard</Text>
               </>
             )}
@@ -147,9 +149,9 @@ const AdminLoginScreen = ({ navigation }) => {
 
         {/* Avertissement */}
         <View style={styles.warningBox}>
-          <Ionicons name="warning-outline" size={16} color="#FF6B35" />
+          <Ionicons name="information-circle-outline" size={15} color={COLORS.gray} />
           <Text style={styles.warningText}>
-            Toute tentative d'accès non autorisé est enregistrée.
+            Accès réservé aux administrateurs autorisés.
           </Text>
         </View>
       </ScrollView>
@@ -160,126 +162,87 @@ const AdminLoginScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D0D0D',
+    backgroundColor: COLORS.white,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 28,
+    paddingHorizontal: 24,
     paddingTop: 56,
     paddingBottom: 40,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: COLORS.lightGray,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 28,
+  },
+
+  // Logo
+  logoSection: {
     alignItems: 'center',
-    marginBottom: 30,
-  },
-  iconContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  shieldBg: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255, 59, 59, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 59, 59, 0.2)',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    letterSpacing: 1,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#777',
-    textAlign: 'center',
-    marginTop: 8,
     marginBottom: 36,
   },
-  form: {
-    gap: 20,
+  logo: {
+    width: 90, height: 90, marginBottom: 12,
   },
-  inputGroup: {
-    gap: 8,
+  shieldRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    marginBottom: 8,
   },
+  shieldIcon: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  adminLabel: {
+    fontSize: 11, fontWeight: '900', color: COLORS.primary,
+    letterSpacing: 2, textTransform: 'uppercase',
+  },
+  title: {
+    fontSize: 32, fontWeight: '900', color: COLORS.primary, letterSpacing: 2,
+  },
+  subtitle: {
+    fontSize: 14, color: COLORS.gray, marginTop: 4,
+  },
+
+  // Formulaire
+  form:        { gap: 16 },
+  inputGroup:  { gap: 8 },
   label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#AAA',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    fontSize: 13, fontWeight: '700', color: COLORS.black,
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    paddingHorizontal: 14,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 14, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: '#EBEBEB',
   },
-  inputIcon: {
-    marginRight: 10,
-  },
+  inputIcon:   { marginRight: 10 },
   input: {
-    flex: 1,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#FFFFFF',
+    flex: 1, paddingVertical: 14,
+    fontSize: 15, color: COLORS.black,
   },
-  eyeBtn: {
-    padding: 8,
-  },
+  eyeBtn: { padding: 6 },
+
   loginBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FF3B3B',
-    paddingVertical: 16,
-    borderRadius: 14,
-    gap: 10,
-    marginTop: 12,
-    shadowColor: '#FF3B3B',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 15, borderRadius: 14, gap: 10,
+    marginTop: 8,
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOpacity: 0.25, shadowRadius: 8,
+    elevation: 5,
   },
-  loginBtnDisabled: {
-    opacity: 0.6,
-  },
-  loginBtnText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
+  loginBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
+
+  // Avertissement
   warningBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 40,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 107, 53, 0.08)',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.15)',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginTop: 36, paddingVertical: 12, paddingHorizontal: 16,
+    backgroundColor: COLORS.lightGray, borderRadius: 10,
   },
-  warningText: {
-    flex: 1,
-    color: '#FF6B35',
-    fontSize: 12,
-    lineHeight: 17,
-  },
+  warningText: { flex: 1, color: COLORS.gray, fontSize: 12, lineHeight: 17 },
 });
 
 export default AdminLoginScreen;

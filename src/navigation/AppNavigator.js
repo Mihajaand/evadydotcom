@@ -23,6 +23,7 @@ import SignupScreen from '../screens/SignupScreen';
 // Écrans Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import AdminProfileDetailScreen from '../screens/AdminProfileDetailScreen';
 
 // Écrans principaux
 import HomeScreen from '../screens/HomeScreen';
@@ -52,12 +53,17 @@ const AuthStack = () => (
     <Stack.Screen
       name="AdminLogin"
       component={AdminLoginScreen}
-      options={{ contentStyle: { backgroundColor: '#0D0D0D' } }}
+      options={{ contentStyle: { backgroundColor: COLORS.white } }}
     />
     <Stack.Screen
       name="AdminDashboard"
       component={AdminDashboardScreen}
-      options={{ contentStyle: { backgroundColor: '#0D0D0D' } }}
+      options={{ contentStyle: { backgroundColor: COLORS.lightGray } }}
+    />
+    <Stack.Screen
+      name="AdminProfileDetail"
+      component={AdminProfileDetailScreen}
+      options={{ contentStyle: { backgroundColor: COLORS.white } }}
     />
   </Stack.Navigator>
 );

@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
+  Platform,
 } from 'react-native';
 import { customAlert } from '../utils/helpers';
 
@@ -178,7 +179,7 @@ const ProfileScreen = ({ route, navigation }) => {
    */
   const handleAddPhoto = async () => {
     if (photos.length >= 6) {
-      Alert.alert('Limite atteinte', 'Maximum 6 photos');
+      Alert.alert('Limite atteinte', 'Maximum 6 photos autorisées sur votre profil');
       return;
     }
 
@@ -193,9 +194,7 @@ const ProfileScreen = ({ route, navigation }) => {
     if (result.canceled) return;
 
     const isProfile = photos.length === 0;
-    if (isProfile) {
-      setLoadingAvatar(true);
-    }
+    if (isProfile) setLoadingAvatar(true);
 
     try {
       const file = result.assets[0];
@@ -204,47 +203,49 @@ const ProfileScreen = ({ route, navigation }) => {
       let contentType = 'image/jpeg';
 
       if (Platform.OS === 'web') {
+        // Web : récupérer le blob directement depuis l'URI
         const response = await fetch(file.uri);
         const blob = await response.blob();
         uploadBody = blob;
         contentType = blob.type || 'image/jpeg';
-        fileExt = contentType.split('/').pop() || 'jpg';
+        const ext = contentType.split('/').pop();
+        fileExt = ext === 'jpeg' ? 'jpg' : (ext || 'jpg');
       } else {
-        fileExt = file.uri.split('.').pop().toLowerCase();
-        const base64 = file.base64;
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        uploadBody = bytes.buffer;
+        // Mobile : utiliser le base64 fourni par ImagePicker
+        const uriParts = file.uri.split('.');
+        fileExt = uriParts[uriParts.length - 1].toLowerCase().split('?')[0] || 'jpg';
         contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+
+        if (file.base64) {
+          const byteCharacters = atob(file.base64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          uploadBody = new Uint8Array(byteNumbers);
+        } else {
+          // Fallback : fetch blob si pas de base64
+          const response = await fetch(file.uri);
+          uploadBody = await response.blob();
+          contentType = uploadBody.type || contentType;
+        }
       }
 
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
-        .upload(fileName, uploadBody, {
-          contentType,
-          upsert: false,
-        });
+        .upload(fileName, uploadBody, { contentType, upsert: false });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) throw new Error(`Upload Storage: ${uploadError.message}`);
 
-      const { data: urlData } = supabase.storage
-        .from('photos')
-        .getPublicUrl(fileName);
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
 
       const { error: insertError } = await supabase
         .from('photos')
-        .insert({
-          user_id: user.id,
-          url: urlData.publicUrl,
-          is_profile: isProfile,
-        });
+        .insert({ user_id: user.id, url: urlData.publicUrl, is_profile: isProfile });
 
-      if (insertError) throw insertError;
+      if (insertError) throw new Error(`Insert DB: ${insertError.message}`);
 
       if (isProfile) {
         await updateProfile({ avatar_url: urlData.publicUrl });
@@ -252,7 +253,8 @@ const ProfileScreen = ({ route, navigation }) => {
 
       await fetchPhotos();
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible d\'ajouter la photo');
+      console.error('Erreur handleAddPhoto:', error);
+      Alert.alert('Erreur upload', error.message || 'Impossible d\'ajouter la photo');
     } finally {
       setLoadingAvatar(false);
     }
@@ -280,57 +282,58 @@ const ProfileScreen = ({ route, navigation }) => {
       let contentType = 'image/jpeg';
 
       if (Platform.OS === 'web') {
+        // Web : récupérer le blob directement depuis l'URI
         const response = await fetch(file.uri);
         const blob = await response.blob();
         uploadBody = blob;
         contentType = blob.type || 'image/jpeg';
-        fileExt = contentType.split('/').pop() || 'jpg';
+        const ext = contentType.split('/').pop();
+        fileExt = ext === 'jpeg' ? 'jpg' : (ext || 'jpg');
       } else {
-        fileExt = file.uri.split('.').pop().toLowerCase();
-        const base64 = file.base64;
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        uploadBody = bytes.buffer;
+        // Mobile : utiliser le base64 fourni par ImagePicker
+        const uriParts = file.uri.split('.');
+        fileExt = uriParts[uriParts.length - 1].toLowerCase().split('?')[0] || 'jpg';
         contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+
+        if (file.base64) {
+          const byteCharacters = atob(file.base64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          uploadBody = new Uint8Array(byteNumbers);
+        } else {
+          // Fallback : fetch blob si pas de base64
+          const response = await fetch(file.uri);
+          uploadBody = await response.blob();
+          contentType = uploadBody.type || contentType;
+        }
       }
 
       const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
-        .upload(fileName, uploadBody, {
-          contentType,
-          upsert: false,
-        });
+        .upload(fileName, uploadBody, { contentType, upsert: false });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) throw new Error(`Upload Storage: ${uploadError.message}`);
 
-      const { data: urlData } = supabase.storage
-        .from('photos')
-        .getPublicUrl(fileName);
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
 
-      await supabase
-        .from('photos')
-        .update({ is_profile: false })
-        .eq('user_id', user.id);
+      // Désactiver toutes les autres photos de profil
+      await supabase.from('photos').update({ is_profile: false }).eq('user_id', user.id);
 
       const { error: insertError } = await supabase
         .from('photos')
-        .insert({
-          user_id: user.id,
-          url: urlData.publicUrl,
-          is_profile: true,
-        });
+        .insert({ user_id: user.id, url: urlData.publicUrl, is_profile: true });
 
-      if (insertError) throw insertError;
+      if (insertError) throw new Error(`Insert DB: ${insertError.message}`);
 
       await updateProfile({ avatar_url: urlData.publicUrl });
       await fetchPhotos();
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible de modifier la photo de profil');
+      console.error('Erreur handleUploadProfilePhoto:', error);
+      Alert.alert('Erreur upload', error.message || 'Impossible de modifier la photo de profil');
     } finally {
       setLoadingAvatar(false);
     }
