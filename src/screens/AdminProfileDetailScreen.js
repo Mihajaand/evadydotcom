@@ -39,12 +39,15 @@ const AdminProfileDetailScreen = ({ route, navigation }) => {
   const [loading,       setLoading]       = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
+  const [photosError, setPhotosError] = useState(null);
+
   useEffect(() => {
     loadProfile();
   }, [profileId]);
 
   const loadProfile = async () => {
     setLoading(true);
+    setPhotosError(null);
     try {
       // 1. Profil
       const { data: p, error: pErr } = await supabase
@@ -55,13 +58,58 @@ const AdminProfileDetailScreen = ({ route, navigation }) => {
       if (pErr) throw pErr;
       setProfile(p);
 
-      // 2. Photos
-      const { data: ph } = await supabase
+      // 2. Photos — table DB d'abord, fallback Storage si vide
+      const { data: ph, error: phErr } = await supabase
         .from('photos')
         .select('*')
         .eq('user_id', profileId)
         .order('created_at', { ascending: true });
-      setPhotos(ph || []);
+
+      if (phErr) {
+        console.error('Erreur lecture photos (RLS?):', phErr);
+        setPhotosError(phErr.message || 'RLS bloque la lecture des photos');
+        setPhotos([]);
+      } else if (ph && ph.length > 0) {
+        // Photos trouvées dans la table DB ✓
+        setPhotos(ph);
+      } else {
+        // Table vide → fallback : lister les fichiers dans Supabase Storage
+        console.log('Table photos vide, tentative via Storage...');
+        try {
+          const { data: storageFiles, error: storageErr } = await supabase.storage
+            .from('photos')
+            .list(profileId, { limit: 20, sortBy: { column: 'created_at', order: 'asc' } });
+
+          if (storageErr) {
+            console.warn('Erreur liste Storage:', storageErr.message);
+            setPhotos([]);
+          } else if (storageFiles && storageFiles.length > 0) {
+            // Construire les URLs publiques depuis les fichiers Storage
+            const storagePhotos = storageFiles
+              .filter((f) => f.name && !f.name.startsWith('.'))
+              .map((f, idx) => {
+                const { data: urlData } = supabase.storage
+                  .from('photos')
+                  .getPublicUrl(`${profileId}/${f.name}`);
+                return {
+                  id: f.id || `storage-${idx}`,
+                  url: urlData.publicUrl,
+                  is_profile: f.name.startsWith('profile_'),
+                  user_id: profileId,
+                  created_at: f.created_at,
+                  _fromStorage: true, // marqueur pour distinguer
+                };
+              });
+            console.log(`${storagePhotos.length} photo(s) trouvée(s) dans Storage`);
+            setPhotos(storagePhotos);
+          } else {
+            setPhotos([]);
+          }
+        } catch (storageEx) {
+          console.warn('Fallback Storage échoué:', storageEx.message);
+          setPhotos([]);
+        }
+      }
 
       // 3. Abonnement
       const { data: sub } = await supabase
@@ -72,16 +120,20 @@ const AdminProfileDetailScreen = ({ route, navigation }) => {
       setSubscription(sub || { tier: 'free' });
 
       // 4. Signalements reçus
-      const { data: rep } = await supabase
+      const { data: rep, error: repErr } = await supabase
         .from('reports')
         .select('*')
         .eq('reported_id', profileId)
         .order('created_at', { ascending: false });
+
+      if (repErr) {
+        console.error('Erreur lecture reports (RLS?):', repErr);
+      }
       setReports(rep || []);
 
     } catch (err) {
       console.error('Erreur chargement détail profil:', err);
-      Alert.alert('Erreur', 'Impossible de charger le profil');
+      Alert.alert('Erreur', 'Impossible de charger le profil : ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -303,10 +355,27 @@ const AdminProfileDetailScreen = ({ route, navigation }) => {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
             <Ionicons name="images-outline" size={15} color={COLORS.primary} />
-            {' '}Photos ({photos.length}/6)
+            {'  '}Photos ({photos.length}/6)
           </Text>
-          {photos.length === 0 ? (
-            <Text style={styles.emptyText}>Aucune photo</Text>
+
+          {/* Message d'erreur RLS avec instruction */}
+          {photosError ? (
+            <View style={styles.photosErrorBox}>
+              <Ionicons name="lock-closed-outline" size={20} color="#FF9500" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.photosErrorTitle}>Accès restreint (RLS)</Text>
+                <Text style={styles.photosErrorText}>
+                  Exécutez le SQL dans{' '}
+                  <Text style={{ fontWeight: '800' }}>supabase/photos_rls.sql</Text>
+                  {' '}pour activer la lecture admin des photos.
+                </Text>
+              </View>
+            </View>
+          ) : photos.length === 0 ? (
+            <View style={styles.noPhotosRow}>
+              <Ionicons name="images-outline" size={18} color={COLORS.gray} />
+              <Text style={styles.emptyText}>Aucune photo enregistrée</Text>
+            </View>
           ) : (
             <View style={styles.photosGrid}>
               {photos.map((photo) => (
@@ -519,7 +588,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 2,
   },
   profilePhotoBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '800' },
-  emptyText: { color: COLORS.gray, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
+  emptyText:   { color: COLORS.gray, fontSize: 13, paddingVertical: 8 },
+  noPhotosRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+
+  // Erreur photos RLS
+  photosErrorBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: 'rgba(255,149,0,0.08)',
+    borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: 'rgba(255,149,0,0.2)',
+  },
+  photosErrorTitle: { fontSize: 13, fontWeight: '800', color: '#FF9500', marginBottom: 3 },
+  photosErrorText:  { fontSize: 12, color: COLORS.darkGray, lineHeight: 17 },
 
   // ── Signalements ─────────────────────────────────────────────────────────
   noReportsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
