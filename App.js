@@ -22,12 +22,20 @@ LogBox.ignoreLogs(['expo-notifications:']);
 
 
 export default function App() {
-  const { loading } = useAuth();
+  const { user, loading } = useAuth();
   const initializeMaintenance = useMaintenanceStore((state) => state.initialize);
+  const refreshMaintenance = useMaintenanceStore((state) => state.refresh);
+  const maintenanceInitialized = useMaintenanceStore((state) => state.initialized);
 
   React.useEffect(() => {
-    initializeMaintenance();
-  }, [initializeMaintenance]);
+    if (!loading) {
+      if (!maintenanceInitialized) {
+        initializeMaintenance();
+      } else if (user) {
+        refreshMaintenance();
+      }
+    }
+  }, [loading, user, maintenanceInitialized, initializeMaintenance, refreshMaintenance]);
 
   if (loading) {
     return <LoadingScreen message="Chargement de E-VADY..." />;

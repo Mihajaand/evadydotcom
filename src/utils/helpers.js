@@ -65,6 +65,38 @@ export const calculateAge = (birthdate) => {
   return age;
 };
 
+export const computeCompatibilityScore = (userProfile, candidateProfile) => {
+  if (!userProfile || !candidateProfile) return 50;
+
+  let score = 50;
+
+  const distance = candidateProfile.distance || 0;
+  if (distance <= 5) score += 25;
+  else if (distance <= 20) score += 15;
+  else if (distance <= 50) score += 8;
+  else if (distance <= 100) score += 4;
+  else score += 1;
+
+  const userCountry = userProfile.country || 'Autre';
+  const candidateCountry = candidateProfile.country || 'Autre';
+  if (userCountry === candidateCountry) score += 10;
+
+  const userAge = calculateAge(userProfile.birthdate);
+  const candidateAge = calculateAge(candidateProfile.birthdate);
+  if (userAge && candidateAge) {
+    const ageGap = Math.abs(userAge - candidateAge);
+    if (ageGap <= 2) score += 10;
+    else if (ageGap <= 5) score += 6;
+    else if (ageGap <= 8) score += 3;
+  }
+
+  if (candidateProfile.bio && candidateProfile.bio.length >= 40) score += 5;
+  if (candidateProfile.is_online) score += 3;
+  if (candidateProfile.subscriptionTier === 'vip') score += 2;
+
+  return Math.min(99, Math.max(25, Math.round(score)));
+};
+
 /**
  * Détermine le pays d'un profil à partir de ses coordonnées GPS (latitude/longitude)
  * @param {number} lat - Latitude

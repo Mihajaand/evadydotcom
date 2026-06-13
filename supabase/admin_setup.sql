@@ -91,3 +91,36 @@ NOTIFY pgrst, 'reload schema';
 SELECT COUNT(*) as total_profiles FROM profiles;
 SELECT COUNT(*) as total_subscriptions FROM subscriptions;
 SELECT COUNT(*) as total_reports FROM reports;
+
+-- ================================================================
+-- Table pour stocker les paramètres globaux de l'application
+-- ================================================================
+CREATE TABLE IF NOT EXISTS app_settings (
+	key text PRIMARY KEY,
+	value text,
+	description text,
+	updated_at timestamptz DEFAULT now()
+);
+
+-- Insérer la clé de maintenance si absente
+INSERT INTO app_settings (key, value, description)
+VALUES ('maintenance_mode', 'false', 'Mode maintenance global pour l''application')
+ON CONFLICT (key) DO NOTHING;
+
+-- Politiques RLS minimales (adapter selon besoins de sécurité)
+DROP POLICY IF EXISTS "public_read_app_settings" ON app_settings;
+CREATE POLICY "public_read_app_settings"
+ON app_settings FOR SELECT
+TO authenticated
+USING (true);
+
+DROP POLICY IF EXISTS "public_update_app_settings" ON app_settings;
+CREATE POLICY "public_update_app_settings"
+ON app_settings FOR UPDATE
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Activer le temps réel sur app_settings
+ALTER PUBLICATION supabase_realtime ADD TABLE app_settings;
+NOTIFY pgrst, 'reload schema';

@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../utils/constants';
-import { haversineDistance, calculateAge, formatDistance } from '../utils/helpers';
+import { haversineDistance, calculateAge, formatDistance, computeCompatibilityScore } from '../utils/helpers';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import SkeletonSearch from '../components/SkeletonSearch';
@@ -115,12 +115,14 @@ const SearchScreen = ({ navigation }) => {
   /**
    * Rendu d'un profil dans la liste
    */
-  const renderProfile = ({ item }) => (
-    <TouchableOpacity
-      style={styles.profileCard}
-      onPress={() => handleProfilePress(item)}
-      activeOpacity={0.85}
-    >
+  const renderProfile = ({ item }) => {
+    const compatibilityScore = computeCompatibilityScore(profile, item);
+    return (
+      <TouchableOpacity
+        style={styles.profileCard}
+        onPress={() => handleProfilePress(item)}
+        activeOpacity={0.85}
+      >
       <Image
         source={
           item.avatar_url
@@ -144,11 +146,15 @@ const SearchScreen = ({ navigation }) => {
         {item.bio ? (
           <Text style={styles.bio} numberOfLines={1}>{item.bio}</Text>
         ) : null}
+        {typeof compatibilityScore === 'number' && (
+          <Text style={styles.compatibilityText}>{compatibilityScore}% de chance de match</Text>
+        )}
       </View>
 
       <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
     </TouchableOpacity>
   );
+};
 
   return (
     <View style={styles.container}>
@@ -451,6 +457,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.darkGray,
     marginTop: 2,
+  },
+  compatibilityText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.primary,
   },
   center: {
     flex: 1,

@@ -313,8 +313,17 @@ const SignupScreen = ({ navigation }) => {
 
       Alert.alert('Inscription réussie !', 'Bienvenue sur E-VADY !');
     } catch (error) {
-      console.error('Erreur finale inscription:', error);
-      Alert.alert('Erreur', error.message || 'Une erreur est survenue lors de la création de votre profil.');
+      const message =
+        error?.message ||
+        error?.error ||
+        (typeof error === 'string' ? error : 'Une erreur est survenue lors de la création de votre profil.');
+
+      const normalized = String(message).toLowerCase();
+      if (normalized.includes('un compte existe déjà') || normalized.includes('already exists') || normalized.includes('duplicate')) {
+        Alert.alert('Email déjà utilisé', 'Un compte existe déjà avec cet email. Veuillez utiliser une autre adresse ou vous connecter.');
+      } else {
+        Alert.alert('Erreur', message);
+      }
     } finally {
       setLoading(false);
     }

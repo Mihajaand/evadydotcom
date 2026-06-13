@@ -19,7 +19,7 @@ const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.94;
 const CARD_HEIGHT = height * 0.74;
 
-const ProfileCard = ({ profile, distance }) => {
+const ProfileCard = ({ profile, distance, compatibilityScore }) => {
   if (!profile) return null;
 
   const age = calculateAge(profile.birthdate);
@@ -49,6 +49,11 @@ const ProfileCard = ({ profile, distance }) => {
 
       {/* Overlay dégradé en bas */}
       <View style={styles.overlay}>
+        {typeof compatibilityScore === 'number' && (
+          <View style={styles.compatibilityBadge}>
+            <Text style={styles.compatibilityText}>{compatibilityScore}% compatibilité</Text>
+          </View>
+        )}
         {/* Badge en ligne */}
         {profile.is_online && (
           <View style={styles.onlineBadge}>
@@ -195,6 +200,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
+  },
+  compatibilityBadge: {
+    position: 'absolute',
+    top: 18,
+    left: 18,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  compatibilityText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '800',
   },
 });
 

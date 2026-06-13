@@ -24,7 +24,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Callout } from 'react-native-maps'; // MODIFICATION : Intégration de la carte interactive
 import { COLORS } from '../utils/constants';
-import { haversineDistance, calculateAge, formatDistance, getCountryFromCoords } from '../utils/helpers'; // MODIFICATION : Import des helpers d'âge et formatage
+import { haversineDistance, calculateAge, formatDistance, getCountryFromCoords, computeCompatibilityScore } from '../utils/helpers'; // MODIFICATION : Import des helpers d'âge et formatage
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import ProfileCard from '../components/ProfileCard';
@@ -95,6 +95,7 @@ const HomeScreen = ({ navigation }) => {
    * @description Jdoc: Candidat de profil recommandé actif à l'index courant parmi les profils filtrés.
    **/
   const currentProfile = filteredProfiles[currentIndex];
+  const currentCompatibility = currentProfile ? computeCompatibilityScore(profile, currentProfile) : undefined;
 
   // AJOUT : États et Refs pour la micro-animation des petits cœurs qui s'envolent
   const [flyingHearts, setFlyingHearts] = useState([]);
@@ -915,6 +916,7 @@ const HomeScreen = ({ navigation }) => {
                   <ProfileCard
                     profile={filteredProfiles[currentIndex + 1]}
                     distance={filteredProfiles[currentIndex + 1].distance}
+                    compatibilityScore={computeCompatibilityScore(profile, filteredProfiles[currentIndex + 1])}
                   />
                 </Animated.View>
               )}
@@ -932,6 +934,7 @@ const HomeScreen = ({ navigation }) => {
                   <ProfileCard
                     profile={currentProfile}
                     distance={currentProfile.distance}
+                    compatibilityScore={currentCompatibility}
                   />
                 </TouchableOpacity>
 
