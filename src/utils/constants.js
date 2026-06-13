@@ -70,6 +70,7 @@ export const REPORT_REASONS = [
   'Comportement inapproprié',
   'Harcèlement',
   'Faux profil',
+  'arnaque',
   'Contenu offensant',
   'Spam',
   'Autre',
