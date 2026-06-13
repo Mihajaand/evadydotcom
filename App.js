@@ -16,12 +16,18 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
 import LoadingScreen from './src/components/LoadingScreen';
 import useAuth from './src/hooks/useAuth';
+import useMaintenanceStore from './src/store/maintenanceStore';
 import { LogBox } from 'react-native';
 LogBox.ignoreLogs(['expo-notifications:']);
 
 
 export default function App() {
   const { loading } = useAuth();
+  const initializeMaintenance = useMaintenanceStore((state) => state.initialize);
+
+  React.useEffect(() => {
+    initializeMaintenance();
+  }, [initializeMaintenance]);
 
   if (loading) {
     return <LoadingScreen message="Chargement de E-VADY..." />;

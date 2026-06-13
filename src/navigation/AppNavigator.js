@@ -24,6 +24,9 @@ import SignupScreen from '../screens/SignupScreen';
 import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import AdminProfileDetailScreen from '../screens/AdminProfileDetailScreen';
+import AdminMaintenanceScreen from '../screens/AdminMaintenanceScreen';
+import MaintenanceScreen from '../screens/MaintenanceScreen';
+import useMaintenanceStore from '../store/maintenanceStore';
 
 // Écrans principaux
 import HomeScreen from '../screens/HomeScreen';
@@ -63,6 +66,11 @@ const AuthStack = () => (
     <Stack.Screen
       name="AdminProfileDetail"
       component={AdminProfileDetailScreen}
+      options={{ contentStyle: { backgroundColor: COLORS.white } }}
+    />
+    <Stack.Screen
+      name="AdminMaintenance"
+      component={AdminMaintenanceScreen}
       options={{ contentStyle: { backgroundColor: COLORS.white } }}
     />
   </Stack.Navigator>
@@ -189,10 +197,11 @@ const MainStack = () => (
 const AppNavigator = () => {
   const user = useAuthStore((state) => state.user);
   const profile = useAuthStore((state) => state.profile);
+  const isMaintenanceMode = useMaintenanceStore((state) => state.isMaintenanceMode);
 
-  // Utilisateur connecté ET profil chargé → Afficher l'app
+  // Utilisateur connecté ET profil chargé → Afficher maintenance ou l'app normale
   if (user && profile) {
-    return <MainStack />;
+    return isMaintenanceMode ? <MaintenanceScreen /> : <MainStack />;
   }
 
   // Non connecté → Afficher l'auth
