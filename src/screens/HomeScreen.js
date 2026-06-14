@@ -198,7 +198,7 @@ const HomeScreen = ({ navigation }) => {
    * RÈGLE CRITIQUE: Hommes voient UNIQUEMENT les femmes et vice versa
    */
   const fetchProfiles = useCallback(async (isSilent = false) => {
-    if (!profile) return;
+    if (!profile || !user?.id) return;
 
     if (!isSilent) {
       setLoading(true);

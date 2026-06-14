@@ -3,22 +3,10 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../utils/constants';
 import useAuthStore from '../store/authStore';
-import useMaintenanceStore from '../store/maintenanceStore';
 
-/**
- * 
- * @returns 
- *
- */
-const MaintenanceScreen = () => {
+const DisabledAccountScreen = () => {
   const logout = useAuthStore((state) => state.logout);
-  const isMaintenanceMode = useMaintenanceStore((state) => state.isMaintenanceMode);
 
-
-/**
- * Écran de maintenance
- * Affiché lorsque le mode maintenance est activé.
- */
   const [loading, setLoading] = React.useState(false);
 
   const handleLogout = async () => {
@@ -35,15 +23,12 @@ const MaintenanceScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <Ionicons name="warning-outline" size={64} color={COLORS.primary} />
-        <Text style={styles.title}>Mode maintenance</Text>
+        <Ionicons name="lock-closed-outline" size={64} color={COLORS.primary} />
+        <Text style={styles.title}>Compte désactivé</Text>
         <Text style={styles.subtitle}>
-          L'application est temporairement en maintenance.
-          {'\n'}Veuillez réessayer dans quelques minutes.
+          Votre compte a été temporairement désactivé par un administrateur.
+          {'\n'}Veuillez contacter le support ou réessayer plus tard.
         </Text>
-        {/* <Text style={styles.status}>
-          Statut actuel : {isMaintenanceMode ? 'Activé' : 'Désactivé'}
-        </Text> */}
         <TouchableOpacity style={[styles.logoutButton, loading && styles.logoutButtonDisabled]} onPress={handleLogout} disabled={loading}>
           {loading ? (
             <ActivityIndicator color={COLORS.white} />
@@ -93,13 +78,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
   },
-  status: {
-    marginTop: 18,
-    fontSize: 13,
-    color: COLORS.gray,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
   logoutButton: {
     marginTop: 24,
     backgroundColor: COLORS.primary,
@@ -118,4 +96,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default MaintenanceScreen;
+export default DisabledAccountScreen;

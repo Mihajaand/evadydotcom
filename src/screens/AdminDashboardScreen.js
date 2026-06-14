@@ -91,12 +91,17 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   // ── Temps réel ─────────────────────────────────────────────────────────────
   const setupRealtime = () => {
+    // Use a unique channel name to avoid adding callbacks to an already-subscribed channel
+    const channelName = `admin-realtime-${Date.now()}`;
     const channel = supabase
-      .channel('admin-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' },      () => loadAllData(true))
+      .channel(channelName)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadAllData(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'subscriptions' }, () => loadAllData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' },       () => loadAllData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => loadAllData(true))
       .subscribe();
+
+    // Remove any previous channel reference and store the new one
+    if (realtimeRef.current) supabase.removeChannel(realtimeRef.current);
     realtimeRef.current = channel;
   };
 

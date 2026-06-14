@@ -1,20 +1,25 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import useMessageStore from '../store/messageStore';
 import useRealtimeNotifications from './useRealtimeNotifications';
+import useMaintenanceStore from '../store/maintenanceStore';
 
 const useAuth = () => {
   const { user, profile, loading, initialize, setUser, fetchProfile, setLoading } = useAuthStore();
   const subscribeToMessages = useMessageStore((state) => state.subscribeToMessages);
   const fetchConversations = useMessageStore((state) => state.fetchConversations);
+  const initializeMaintenance = useMaintenanceStore((state) => state.initialize);
 
   // Activer l'écoute des notifications temps réel (Likes, Messages, Signalements)
   useRealtimeNotifications();
 
+  const profileChannel = useRef(null);
+
   useEffect(() => {
-    // Initialiser la session au montage
+    // Initialiser la session et le store de maintenance au montage
     initialize();
+    initializeMaintenance();
 
     // Écouter les changements d'état d'authentification
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -35,6 +40,9 @@ const useAuth = () => {
     // Nettoyage à la destruction
     return () => {
       subscription?.unsubscribe();
+      if (profileChannel.current) {
+        supabase.removeChannel(profileChannel.current);
+      }
     };
   }, []);
 
@@ -50,6 +58,38 @@ const useAuth = () => {
       unsubscribe();
     };
   }, [user?.id, subscribeToMessages, fetchConversations]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Se (ré)abonner aux changements du profil pour détecter is_active instantanément
+    const channel = supabase
+      .channel(`profile-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+        async (payload) => {
+          if (payload.new) {
+            setUser((prev) => prev);
+            try {
+              await fetchProfile(user.id);
+            } catch (error) {
+              console.error('Erreur mise à jour profil temps réel:', error);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    profileChannel.current = channel;
+
+    return () => {
+      if (profileChannel.current) {
+        supabase.removeChannel(profileChannel.current);
+        profileChannel.current = null;
+      }
+    };
+  }, [user?.id, fetchProfile]);
 
   return { user, profile, loading };
 };

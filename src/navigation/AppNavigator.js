@@ -26,6 +26,7 @@ import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import AdminProfileDetailScreen from '../screens/AdminProfileDetailScreen';
 import AdminMaintenanceScreen from '../screens/AdminMaintenanceScreen';
 import MaintenanceScreen from '../screens/MaintenanceScreen';
+import DisabledAccountScreen from '../screens/DisabledAccountScreen';
 import useMaintenanceStore from '../store/maintenanceStore';
 
 // Écrans principaux
@@ -199,8 +200,11 @@ const AppNavigator = () => {
   const profile = useAuthStore((state) => state.profile);
   const isMaintenanceMode = useMaintenanceStore((state) => state.isMaintenanceMode);
 
-  // Utilisateur connecté ET profil chargé → Afficher maintenance ou l'app normale
+  // Utilisateur connecté ET profil chargé → Afficher maintenance / compte désactivé ou l'app normale
   if (user && profile) {
+    if (profile.is_active === false) {
+      return <DisabledAccountScreen />;
+    }
     return isMaintenanceMode ? <MaintenanceScreen /> : <MainStack />;
   }
 

@@ -115,9 +115,13 @@ TO authenticated
 USING (true);
 
 DROP POLICY IF EXISTS "public_update_app_settings" ON app_settings;
-CREATE POLICY "public_update_app_settings"
+-- IMPORTANT: Restrict updates to `app_settings` so that regular authenticated users
+-- cannot toggle global settings (like maintenance_mode) directly from the client.
+-- Allow only the Supabase `service_role` (server-side) to perform updates. Admin UIs
+-- should call a secure Edge Function or server endpoint that uses the service_role key.
+CREATE POLICY "service_update_app_settings"
 ON app_settings FOR UPDATE
-TO authenticated
+TO service_role
 USING (true)
 WITH CHECK (true);
 

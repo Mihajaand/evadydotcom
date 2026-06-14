@@ -446,9 +446,12 @@ const ProfileScreen = ({ route, navigation }) => {
           text: 'Déconnexion',
           style: 'destructive',
           onPress: async () => {
+            setSaving(true);
             try {
+              await new Promise((resolve) => setTimeout(resolve, 800));
               await logout();
             } catch (error) {
+              setSaving(false);
               Alert.alert('Erreur', error.message);
             }
           },
@@ -839,12 +842,16 @@ const ProfileScreen = ({ route, navigation }) => {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.actionRow} onPress={handleLogout}>
+          <TouchableOpacity style={[styles.actionRow, saving && styles.logoutButtonDisabled]} onPress={handleLogout} disabled={saving}>
             <View style={styles.actionLeft}>
               <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
               <Text style={[styles.actionText, styles.logoutText]}>Déconnexion</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+            {saving ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+            )}
           </TouchableOpacity>
         </View>
       )}
@@ -1188,6 +1195,9 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: COLORS.danger,
+  },
+  logoutButtonDisabled: {
+    opacity: 0.6,
   },
 });
 
