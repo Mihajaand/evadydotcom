@@ -107,16 +107,18 @@ const useAuthStore = create((set, get) => ({
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
-    set({ profile: data });
-    
-    // Mettre le statut en ligne
-    await supabase
-      .from('profiles')
-      .update({ is_online: true })
-      .eq('id', userId);
-    
+
+    set({ profile: data || null });
+
+    if (data) {
+      await supabase
+        .from('profiles')
+        .update({ is_online: true })
+        .eq('id', userId);
+    }
+
     return data;
   },
 

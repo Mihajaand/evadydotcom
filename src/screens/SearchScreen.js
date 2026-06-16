@@ -37,7 +37,10 @@ const SearchScreen = ({ navigation }) => {
    * Récupère les profils du genre opposé
    */
   const fetchProfiles = useCallback(async () => {
-    if (!profile || !user?.id) return;
+    if (!profile || !user?.id) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {

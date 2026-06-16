@@ -157,12 +157,20 @@ const ProfileScreen = ({ route, navigation }) => {
    * Récupère les photos de l'utilisateur
    */
   const fetchPhotos = async (uid) => {
+    // Protection : si pas d'uid fourni et pas d'utilisateur connecté, éviter la requête
+    if (!uid && !user?.id) {
+      setPhotos([]);
+      setLoadingPhotos(false);
+      return;
+    }
+
     setLoadingPhotos(true);
     try {
+      const targetId = uid || user.id;
       const { data, error } = await supabase
         .from('photos')
         .select('*')
-        .eq('user_id', uid || user.id)
+        .eq('user_id', targetId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -180,6 +188,11 @@ const ProfileScreen = ({ route, navigation }) => {
   const handleAddPhoto = async () => {
     if (photos.length >= 6) {
       Alert.alert('Limite atteinte', 'Maximum 6 photos autorisées sur votre profil');
+      return;
+    }
+
+    if (!user?.id) {
+      Alert.alert('Erreur', 'Session invalide. Veuillez vous reconnecter et réessayer.');
       return;
     }
 
@@ -245,7 +258,13 @@ const ProfileScreen = ({ route, navigation }) => {
         .from('photos')
         .insert({ user_id: user.id, url: urlData.publicUrl, is_profile: isProfile });
 
-      if (insertError) throw new Error(`Insert DB: ${insertError.message}`);
+      if (insertError) {
+        // Si la politique RLS bloque l'insertion, proposer une action claire
+        if (String(insertError.message || '').toLowerCase().includes('row-level security')) {
+          Alert.alert('Autorisation refusée', "Impossible d'ajouter la photo: la politique de sécurité (RLS) bloque l'opération. Vérifiez la session ou les politiques côté Supabase.");
+        }
+        throw new Error(`Insert DB: ${insertError.message}`);
+      }
 
       if (isProfile) {
         await updateProfile({ avatar_url: urlData.publicUrl });
@@ -273,6 +292,11 @@ const ProfileScreen = ({ route, navigation }) => {
     });
 
     if (result.canceled) return;
+
+    if (!user?.id) {
+      Alert.alert('Erreur', 'Session invalide. Veuillez vous reconnecter et réessayer.');
+      return;
+    }
 
     setLoadingAvatar(true);
     try {
@@ -327,7 +351,12 @@ const ProfileScreen = ({ route, navigation }) => {
         .from('photos')
         .insert({ user_id: user.id, url: urlData.publicUrl, is_profile: true });
 
-      if (insertError) throw new Error(`Insert DB: ${insertError.message}`);
+      if (insertError) {
+        if (String(insertError.message || '').toLowerCase().includes('row-level security')) {
+          Alert.alert('Autorisation refusée', "Impossible de modifier la photo de profil: la politique RLS empêche l'insertion. Vérifiez la session ou les policies Supabase.");
+        }
+        throw new Error(`Insert DB: ${insertError.message}`);
+      }
 
       await updateProfile({ avatar_url: urlData.publicUrl });
       await fetchPhotos();

@@ -27,7 +27,7 @@ const MessagesScreen = ({ navigation }) => {
     useCallback(() => {
       fetchConversations();
       resetUnreadTotal();
-    }, [])
+    }, [fetchConversations, resetUnreadTotal])
   );
 
   /**

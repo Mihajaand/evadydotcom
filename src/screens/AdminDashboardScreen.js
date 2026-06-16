@@ -234,15 +234,21 @@ const AdminDashboardScreen = ({ navigation }) => {
           text: '🗑️ Supprimer', style: 'destructive',
           onPress: async () => {
             try {
-              await supabase.from('notifications').delete().or(`user_id.eq.${profile.id},notifier_id.eq.${profile.id}`);
-              await supabase.from('reports').delete().or(`reporter_id.eq.${profile.id},reported_id.eq.${profile.id}`);
-              await supabase.from('messages').delete().or(`sender_id.eq.${profile.id},receiver_id.eq.${profile.id}`);
-              await supabase.from('likes').delete().or(`liker_id.eq.${profile.id},liked_id.eq.${profile.id}`);
-              await supabase.from('passes').delete().or(`passer_id.eq.${profile.id},passed_id.eq.${profile.id}`);
-              await supabase.from('photos').delete().eq('user_id', profile.id);
-              await supabase.from('subscriptions').delete().eq('user_id', profile.id);
-              const { error } = await supabase.from('profiles').delete().eq('id', profile.id);
-              if (error) throw error;
+              const response = await fetch(`${SUPABASE_URL}/functions/v1/delete-user`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  apikey: SUPABASE_ANON_KEY,
+                  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({ user_id: profile.id }),
+              });
+
+              if (!response.ok) {
+                const body = await response.json().catch(() => null);
+                throw new Error(body?.error || `Erreur suppression: ${response.status}`);
+              }
+
               setProfiles((prev) => prev.filter((p) => p.id !== profile.id));
               setStats((prev) => ({
                 ...prev,
@@ -251,7 +257,9 @@ const AdminDashboardScreen = ({ navigation }) => {
                 totalInactive: profile.is_active === false ? prev.totalInactive - 1 : prev.totalInactive,
               }));
               Alert.alert('Supprimé', `Le compte a été supprimé définitivement.`);
-            } catch (err) { Alert.alert('Erreur', err.message); }
+            } catch (err) {
+              Alert.alert('Erreur', err.message);
+            }
           },
         },
       ]
