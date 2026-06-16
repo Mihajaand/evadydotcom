@@ -3,46 +3,61 @@
 -- Exécuter dans l'éditeur SQL de votre console Supabase
 -- ================================================================
 
--- 1. Ajouter la colonne is_active si elle n'existe pas
+-- 1. Ajouter les colonnes manquantes à profiles
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profession text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS height text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS beliefs text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS interests jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS lifestyle jsonb DEFAULT '[]'::jsonb;
 
 -- 2. Mettre tous les comptes existants à actif par défaut
 UPDATE profiles SET is_active = true WHERE is_active IS NULL;
 
 -- ================================================================
--- OPTION A (Recommandée pour le Panel Admin) :
--- Désactiver le RLS sur profiles pour permettre la lecture admin
--- ⚠️ Ne faire que si votre application gère la sécurité autrement
+-- POLITIQUES RLS POUR TABLE PROFILES
 -- ================================================================
 
--- Désactiver RLS sur profiles (lecture publique admin)
--- ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
--- ================================================================
--- OPTION B (Plus sécurisée) :
--- Garder le RLS et ajouter une policy de lecture publique
--- ================================================================
-
--- Politique pour permettre la lecture de tous les profils (panel admin)
+-- Politique 1 : Lecture pour utilisateurs authentifiés (panel admin + app)
 DROP POLICY IF EXISTS "Lecture admin publique" ON profiles;
-CREATE POLICY "Lecture admin publique"
+DROP POLICY IF EXISTS "Lecture publique des profiles" ON profiles;
+CREATE POLICY "Lecture publique des profiles"
 ON profiles FOR SELECT
-TO anon, authenticated
+TO authenticated
 USING (true);
 
--- Politique pour permettre la mise à jour du statut is_active
-DROP POLICY IF EXISTS "Mise à jour admin profiles" ON profiles;
-CREATE POLICY "Mise à jour admin profiles"
-ON profiles FOR UPDATE
-TO anon, authenticated
-USING (true)
+-- Politique 2 : Insertion via Edge Function/service_role uniquement
+DROP POLICY IF EXISTS "Insert via service role" ON profiles;
+CREATE POLICY "Insert via service role"
+ON profiles FOR INSERT
+TO service_role
 WITH CHECK (true);
 
--- Politique pour permettre la suppression (admin)
+-- Politique 3 : Mise à jour — utilisateurs auth peuvent mettre à jour leur propre profil
+DROP POLICY IF EXISTS "Mise à jour admin profiles" ON profiles;
+DROP POLICY IF EXISTS "Update own profile" ON profiles;
+CREATE POLICY "Update own profile"
+ON profiles FOR UPDATE
+TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- Politique 4 : Mise à jour pour service_role (admin) — peut modifier n'importe quel profil
+DROP POLICY IF EXISTS "Update via service role" ON profiles;
+CREATE POLICY "Update via service role"
+ON profiles FOR UPDATE
+TO service_role
+WITH CHECK (true);
+
+-- Politique 5 : Suppression — via service_role uniquement (admin)
 DROP POLICY IF EXISTS "Suppression admin profiles" ON profiles;
-CREATE POLICY "Suppression admin profiles"
+DROP POLICY IF EXISTS "Delete via service role" ON profiles;
+CREATE POLICY "Delete via service role"
 ON profiles FOR DELETE
-TO anon, authenticated
+TO service_role
 USING (true);
 
 -- ================================================================

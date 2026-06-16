@@ -54,7 +54,8 @@ const ProfileScreen = ({ route, navigation }) => {
   const { subscription, fetchSubscription } = useSubscriptionStore();
 
   const targetUserId = route?.params?.userId;
-  const isOwnProfile = !targetUserId || targetUserId === user?.id;
+  const userId = user?.id || myProfile?.id;
+  const isOwnProfile = !targetUserId || targetUserId === userId;
 
   const [profile, setProfile] = useState(null);
   const [photos, setPhotos] = useState([]);
@@ -76,6 +77,7 @@ const ProfileScreen = ({ route, navigation }) => {
 
   // Charger les données au montage
   useEffect(() => {
+    console.log('ProfileScreen useEffect:', { isOwnProfile, hasUser: !!userId, hasMyProfile: !!myProfile, targetUserId });
     if (isOwnProfile) {
       if (myProfile) {
         setProfile(myProfile);
@@ -98,17 +100,20 @@ const ProfileScreen = ({ route, navigation }) => {
         setSelectedBeliefs(myProfile.beliefs || '');
         setSelectedLifestyles(myProfile.lifestyle || []);
       }
-      if (user?.id) {
-        fetchPhotos(user.id);
-        fetchSubscription(user.id);
+      if (userId) {
+        console.log('ProfileScreen: Appel fetchPhotos avec userId=', userId);
+        fetchPhotos(userId, myProfile?.avatar_url);
+        fetchSubscription(userId);
+      } else {
+        console.warn('ProfileScreen: userId non disponible, photos non chargées');
       }
     } else if (targetUserId) {
+      console.log('ProfileScreen: Appel fetchTargetProfile pour userId=', targetUserId);
       fetchTargetProfile();
     }
   }, [myProfile, user, targetUserId, isOwnProfile]);
 
   const fetchTargetProfile = async () => {
-    setLoadingPhotos(true);
     try {
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
@@ -137,17 +142,12 @@ const ProfileScreen = ({ route, navigation }) => {
       setSelectedBeliefs(profileData.beliefs || '');
       setSelectedLifestyles(profileData.lifestyle || []);
 
-      const { data: photosData, error: photosError } = await supabase
-        .from('photos')
-        .select('*')
-        .eq('user_id', targetUserId)
-        .order('created_at', { ascending: true });
-
-      if (photosError) throw photosError;
-      setPhotos(photosData || []);
+      // Charger les photos en utilisant la même logique que fetchPhotos (DB puis Storage)
+      await fetchPhotos(targetUserId, profileData?.avatar_url);
     } catch (error) {
       console.error('Erreur chargement profil tiers:', error);
       Alert.alert('Erreur', 'Impossible de charger le profil.');
+      setPhotos([]);
     } finally {
       setLoadingPhotos(false);
     }
@@ -156,19 +156,103 @@ const ProfileScreen = ({ route, navigation }) => {
   /**
    * Récupère les photos de l'utilisateur
    */
-  const fetchPhotos = async (uid) => {
+  const fetchPhotos = async (uid, currentAvatarUrl = null) => {
     setLoadingPhotos(true);
+    const effectiveUid = uid || userId;
+    if (!effectiveUid) {
+      console.warn('fetchPhotos: effectiveUid est undefined', { uid, userId: userId });
+      setLoadingPhotos(false);
+      return;
+    }
+    console.log('fetchPhotos: Démarrage pour userId=', effectiveUid);
+
+    const activeAvatar = currentAvatarUrl || profile?.avatar_url || myProfile?.avatar_url;
+
+    const finalizePhotos = (items) => {
+      let updated = [...items];
+      if (activeAvatar) {
+        const hasProfile = updated.some(p => p.url === activeAvatar || p.is_profile);
+        if (!hasProfile) {
+          updated.unshift({
+            id: `profile-${effectiveUid}-${Date.now()}`,
+            user_id: effectiveUid,
+            url: activeAvatar,
+            is_profile: true,
+            created_at: new Date().toISOString(),
+          });
+        } else {
+          updated = updated.map(p => {
+            if (p.url === activeAvatar) {
+              return { ...p, is_profile: true };
+            }
+            if (p.url !== activeAvatar && p.is_profile) {
+              return { ...p, is_profile: false };
+            }
+            return p;
+          });
+        }
+      }
+      return updated.slice(0, 6);
+    };
+
     try {
+      // Essayer d'abord la table photos via la requête directe
       const { data, error } = await supabase
         .from('photos')
         .select('*')
-        .eq('user_id', uid || user.id)
-        .order('created_at', { ascending: true });
+        .eq('user_id', effectiveUid)
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setPhotos(data || []);
+      console.log('fetchPhotos: Résultat DB -', { error: error?.message, dataCount: data?.length || 0 });
+
+      // Si la requête DB renvoie des lignes, on les utilise.
+      if (!error && data && data.length > 0) {
+        console.log('fetchPhotos: Photos trouvées en DB, count=', data.length);
+        setPhotos(finalizePhotos(data));
+        setLoadingPhotos(false);
+        return;
+      }
+
+      // Si la table est vide ou bloquée par RLS, utiliser le Storage comme fallback
+      console.warn('fetchPhotos: Table vide ou inaccessible, essai fallback Storage:', { error: error?.message });
+      
+      const { data: listData, error: listError } = await supabase.storage
+        .from('photos')
+        .list(effectiveUid, { limit: 100, offset: 0 });
+
+      console.log('fetchPhotos: Résultat Storage list -', { error: listError?.message, fileCount: listData?.length || 0 });
+
+      if (listError) {
+        console.error('fetchPhotos: Erreur critique Storage list:', { error: listError?.message, status: listError?.status });
+        setPhotos(finalizePhotos([]));
+        setLoadingPhotos(false);
+        return;
+      }
+
+      if (listData && listData.length > 0) {
+        console.log('fetchPhotos: Construction URLs pour', listData.length, 'fichiers');
+        // Construire les URLs publiques et les métadonnées
+        const items = listData.map((it, index) => ({
+          id: `${effectiveUid}-${it.name}`, // ID unique basé sur user + fileName
+          user_id: effectiveUid,
+          url: supabase.storage.from('photos').getPublicUrl(`${effectiveUid}/${it.name}`).data.publicUrl,
+          is_profile: it.name.includes('profile_'),
+          created_at: it.updated_at || new Date().toISOString(),
+          name: it.name,
+        }));
+        
+        // Trier les éléments du stockage par date décroissante (les plus récents en premier)
+        items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        
+        console.log('fetchPhotos: Succès, photos chargées=', items.map(it => it.name));
+        setPhotos(finalizePhotos(items));
+      } else {
+        console.warn('fetchPhotos: Pas de fichiers trouvés en Storage');
+        setPhotos(finalizePhotos([]));
+      }
     } catch (error) {
-      console.error('Erreur chargement photos:', error);
+      console.error('fetchPhotos: Exception critique:', { message: error?.message, code: error?.code });
+      setPhotos(finalizePhotos([]));
     } finally {
       setLoadingPhotos(false);
     }
@@ -231,7 +315,10 @@ const ProfileScreen = ({ route, navigation }) => {
         }
       }
 
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      // Ajouter le préfixe 'profile_' si c'est la première photo
+      const fileName = isProfile 
+        ? `${userId}/profile_${Date.now()}.${fileExt}`
+        : `${userId}/${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
@@ -241,17 +328,26 @@ const ProfileScreen = ({ route, navigation }) => {
 
       const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
 
-      const { error: insertError } = await supabase
-        .from('photos')
-        .insert({ user_id: user.id, url: urlData.publicUrl, is_profile: isProfile });
+      try {
+        // Essayer d'insérer dans la table DB
+        const { error: insertError } = await supabase
+          .from('photos')
+          .insert({ user_id: userId, url: urlData.publicUrl, is_profile: isProfile });
 
-      if (insertError) throw new Error(`Insert DB: ${insertError.message}`);
+        if (insertError) {
+          console.warn('Insert DB error (RLS may apply):', insertError?.message);
+          // Continuer même si RLS bloque, la photo est uploadée au storage
+        }
+      } catch (dbError) {
+        console.warn('DB insert failed:', dbError?.message);
+      }
 
       if (isProfile) {
         await updateProfile({ avatar_url: urlData.publicUrl });
+        setProfile(prev => prev ? { ...prev, avatar_url: urlData.publicUrl } : null);
       }
 
-      await fetchPhotos();
+      await fetchPhotos(userId, useAuthStore.getState().profile?.avatar_url || urlData.publicUrl);
     } catch (error) {
       console.error('Erreur handleAddPhoto:', error);
       Alert.alert('Erreur upload', error.message || 'Impossible d\'ajouter la photo');
@@ -310,7 +406,7 @@ const ProfileScreen = ({ route, navigation }) => {
         }
       }
 
-      const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
+      const fileName = `${userId}/profile_${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('photos')
@@ -320,17 +416,33 @@ const ProfileScreen = ({ route, navigation }) => {
 
       const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
 
-      // Désactiver toutes les autres photos de profil
-      await supabase.from('photos').update({ is_profile: false }).eq('user_id', user.id);
+      try {
+        // Désactiver toutes les autres photos de profil
+        const { error: updateError } = await supabase
+          .from('photos')
+          .update({ is_profile: false })
+          .eq('user_id', userId);
 
-      const { error: insertError } = await supabase
-        .from('photos')
-        .insert({ user_id: user.id, url: urlData.publicUrl, is_profile: true });
+        if (updateError) {
+          console.warn('Update DB error:', updateError?.message);
+        }
 
-      if (insertError) throw new Error(`Insert DB: ${insertError.message}`);
+        const { error: insertError } = await supabase
+          .from('photos')
+          .insert({ user_id: userId, url: urlData.publicUrl, is_profile: true });
 
+        if (insertError) {
+          console.warn('Insert DB error:', insertError?.message);
+        }
+      } catch (dbError) {
+        console.error('DB operation error (RLS may apply):', dbError);
+        // Continuer même si RLS bloque, l'avatar sera mis à jour
+      }
+
+      // Mettre à jour l'avatar quoiqu'il arrive (même si RLS a bloqué l'insert)
       await updateProfile({ avatar_url: urlData.publicUrl });
-      await fetchPhotos();
+      setProfile(prev => prev ? { ...prev, avatar_url: urlData.publicUrl } : null);
+      await fetchPhotos(userId, urlData.publicUrl);
     } catch (error) {
       console.error('Erreur handleUploadProfilePhoto:', error);
       Alert.alert('Erreur upload', error.message || 'Impossible de modifier la photo de profil');
@@ -360,28 +472,53 @@ const ProfileScreen = ({ route, navigation }) => {
             }
 
             try {
-              await supabase.from('photos').delete().eq('id', photoId);
+              // Vérifier si c'est une photo de la table DB ou du storage
+              const isStoragePhoto = photoToDelete?.name; // Les photos du storage ont une propriété 'name'
+
+              if (isStoragePhoto) {
+                // Supprimer du storage (utiliser user_id de la photo si disponible)
+                const ownerId = photoToDelete.user_id || userId;
+                if (ownerId) {
+                  const filePath = `${ownerId}/${photoToDelete.name}`;
+                  try {
+                    await supabase.storage.from('photos').remove([filePath]);
+                  } catch (remErr) {
+                    console.warn('Erreur suppression storage:', remErr?.message || remErr);
+                  }
+                }
+              } else {
+                // Supprimer de la table DB
+                if (!userId) throw new Error('Utilisateur non authentifié');
+                await supabase.from('photos').delete().eq('id', photoId);
+              }
               
               if (isDeletingProfile) {
                 const remainingPhotos = photos.filter((p) => p.id !== photoId);
                 const nextProfilePhoto = remainingPhotos[0];
 
                 if (nextProfilePhoto) {
-                  await supabase
-                    .from('photos')
-                    .update({ is_profile: true })
-                    .eq('id', nextProfilePhoto.id);
-                  
+                  // Si on a une photo restante, la mettre comme profil
+                  if (!nextProfilePhoto.name) {
+                    // Photo de la table DB
+                    await supabase
+                      .from('photos')
+                      .update({ is_profile: true })
+                      .eq('id', nextProfilePhoto.id);
+                  }
                   await updateProfile({ avatar_url: nextProfilePhoto.url });
+                  setProfile(prev => prev ? { ...prev, avatar_url: nextProfilePhoto.url } : null);
                 } else {
+                  // Aucune photo restante
                   await updateProfile({ avatar_url: null });
+                  setProfile(prev => prev ? { ...prev, avatar_url: null } : null);
                 }
               }
 
               setSelectedPhoto(null);
-              await fetchPhotos();
+              await fetchPhotos(userId, useAuthStore.getState().profile?.avatar_url);
             } catch (error) {
-              Alert.alert('Erreur', 'Impossible de supprimer');
+              console.error('Erreur suppression photo:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer la photo');
             } finally {
               setLoadingAvatar(false);
             }

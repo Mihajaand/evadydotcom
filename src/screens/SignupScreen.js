@@ -79,6 +79,7 @@ const SignupScreen = ({ navigation }) => {
 
   const signup = useAuthStore((state) => state.signup);
   const updateProfile = useAuthStore((state) => state.updateProfile);
+  const fetchProfile = useAuthStore((state) => state.fetchProfile);
   const user = useAuthStore((state) => state.user);
 
   /**
@@ -294,22 +295,49 @@ const SignupScreen = ({ navigation }) => {
 
       const avatarPublicUrl = urlData.publicUrl;
 
-      // 3. Enregistrer l'avatar dans la table des photos
-      await supabase.from('photos').insert({
+      // 3. Attendre que la session soit bien établie avant l'insert (auth.uid() doit être disponible)
+      // Petite pause pour que la session soit propagée dans le context Supabase
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 3bis. Enregistrer l'avatar dans la table des photos
+      const { error: photoInsertError } = await supabase.from('photos').insert({
         user_id: currentUserId,
         url: avatarPublicUrl,
         is_profile: true,
       });
 
+      if (photoInsertError) {
+        console.error('Erreur insertion photo:', photoInsertError);
+        Alert.alert('Avertissement', `Photo uploadée mais non enregistrée: ${photoInsertError.message}. Vous pouvez ajouter des photos plus tard dans votre profil.`);
+      }
+
       // 4. Mettre à jour le profil avec toutes les nouvelles informations de personnalisation
-      await updateProfile({
-        avatar_url: avatarPublicUrl,
-        profession: profession === 'Autre 👤' ? customProfession.trim() : profession,
-        height: height ? `${height} cm` : null,
-        interests: selectedInterests,
-        beliefs: selectedBeliefs,
-        lifestyle: selectedLifestyles,
-      });
+      // ⚠️ Utiliser directement supabase au lieu de updateProfile() du store
+      // car le store n'est pas encore à jour après le signup (user pas encore initié)
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: avatarPublicUrl,
+          profession: profession === 'Autre 👤' ? customProfession.trim() : profession,
+          height: height ? `${height} cm` : null,
+          interests: selectedInterests,
+          beliefs: selectedBeliefs,
+          lifestyle: selectedLifestyles,
+        })
+        .eq('id', currentUserId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Erreur mise à jour profil:', updateError);
+        Alert.alert('Erreur', `Profil partiellement créé: ${updateError.message}. Vous pouvez mettre à jour votre profil plus tard.`);
+      }
+
+      console.log('Profil créé lors de l\'inscription:', updatedProfile);
+
+      // 5. IMPORTANT : Recharger le profil du store pour que l'app affiche les bonnes données
+      // Sans ceci, le store aurait les données de base mais pas avatar_url, profession, etc.
+      await fetchProfile(currentUserId);
 
       Alert.alert('Inscription réussie !', 'Bienvenue sur E-VADY !');
     } catch (error) {
