@@ -70,7 +70,6 @@ const useAuth = () => {
         { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
         async (payload) => {
           if (payload.new) {
-            setUser((prev) => prev);
             try {
               await fetchProfile(user.id);
             } catch (error) {

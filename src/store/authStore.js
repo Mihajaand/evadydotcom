@@ -37,6 +37,10 @@ const useAuthStore = create((set, get) => ({
     if (error) throw error;
     set({ user: data.user });
     await get().fetchProfile(data.user.id);
+    await supabase
+      .from('profiles')
+      .update({ is_online: true })
+      .eq('id', data.user.id);
     return data;
   },
 
@@ -111,12 +115,6 @@ const useAuthStore = create((set, get) => ({
     if (error) throw error;
     set({ profile: data });
     
-    // Mettre le statut en ligne
-    await supabase
-      .from('profiles')
-      .update({ is_online: true })
-      .eq('id', userId);
-    
     return data;
   },
 
@@ -156,6 +154,10 @@ const useAuthStore = create((set, get) => ({
       if (session?.user) {
         set({ user: session.user });
         await get().fetchProfile(session.user.id);
+        await supabase
+          .from('profiles')
+          .update({ is_online: true })
+          .eq('id', session.user.id);
       }
     } catch (error) {
       console.error('Erreur initialisation auth:', error);

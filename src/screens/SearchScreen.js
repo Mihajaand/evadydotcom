@@ -37,7 +37,10 @@ const SearchScreen = ({ navigation }) => {
    * Récupère les profils du genre opposé
    */
   const fetchProfiles = useCallback(async () => {
-    if (!profile || !user?.id) return;
+    if (!profile || !user?.id) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -51,20 +54,53 @@ const SearchScreen = ({ navigation }) => {
 
       if (error) throw error;
 
-      const profilesWithMeta = (data || []).map((p) => ({
-        ...p,
-        distance: haversineDistance(
-          profile.latitude,
-          profile.longitude,
-          p.latitude,
-          p.longitude
-        ),
-        age: calculateAge(p.birthdate),
-      }));
+      const profileIds = (data || []).map((p) => p.id);
+      const subsMap = {};
+      if (profileIds.length > 0) {
+        const { data: subsData } = await supabase
+          .from('subscriptions')
+          .select('user_id, tier')
+          .in('user_id', profileIds);
+
+        (subsData || []).forEach((sub) => {
+          subsMap[sub.user_id] = sub.tier;
+        });
+      }
+
+      const profilesWithMeta = (data || []).map((p) => {
+        const hasCoords = 
+          profile.latitude != null && 
+          profile.longitude != null && 
+          p.latitude != null && 
+          p.longitude != null;
+
+        const distance = hasCoords
+          ? haversineDistance(
+              profile.latitude,
+              profile.longitude,
+              p.latitude,
+              p.longitude
+            )
+          : 0;
+
+        const age = calculateAge(p.birthdate);
+        const subscriptionTier = subsMap[p.id] || 'free';
+        const tempProfile = { ...p, distance, subscriptionTier };
+        const compatibilityScore = computeCompatibilityScore(profile, tempProfile);
+
+        return {
+          ...p,
+          distance,
+          age,
+          subscriptionTier,
+          compatibilityScore,
+        };
+      });
 
       setProfiles(profilesWithMeta);
       setFilteredProfiles(profilesWithMeta);
     } catch (error) {
+      console.error('Erreur de chargement des profils:', error);
       Alert.alert('Erreur', 'Impossible de charger les profils');
     } finally {
       setLoading(false);
@@ -94,8 +130,8 @@ const SearchScreen = ({ navigation }) => {
       filtered = filtered.filter((p) => p.is_online);
     }
 
-    // Trier par distance
-    filtered.sort((a, b) => a.distance - b.distance);
+    // Trier par pourcentage de compatibilité (décroissant) puis par distance (croissant)
+    filtered.sort((a, b) => b.compatibilityScore - a.compatibilityScore || a.distance - b.distance);
 
     setFilteredProfiles(filtered);
   }, [profiles, minAge, maxAge, maxDistance, onlineOnly]);
@@ -116,7 +152,7 @@ const SearchScreen = ({ navigation }) => {
    * Rendu d'un profil dans la liste
    */
   const renderProfile = ({ item }) => {
-    const compatibilityScore = computeCompatibilityScore(profile, item);
+    const compatibilityScore = item.compatibilityScore;
     return (
       <TouchableOpacity
         style={styles.profileCard}

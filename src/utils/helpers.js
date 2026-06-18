@@ -65,22 +65,45 @@ export const calculateAge = (birthdate) => {
   return age;
 };
 
+const parseArrayField = (field) => {
+  if (!field) return [];
+  if (Array.isArray(field)) return field;
+  if (typeof field === 'string') {
+    const trimmed = field.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (e) {
+        return [];
+      }
+    }
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      return trimmed.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+    }
+    return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
 export const computeCompatibilityScore = (userProfile, candidateProfile) => {
   if (!userProfile || !candidateProfile) return 50;
 
-  let score = 50;
+  let score = 30; // Score de base réduit pour laisser de la place aux critères qualitatifs (tags)
 
+  // 1. Distance
   const distance = candidateProfile.distance || 0;
-  if (distance <= 5) score += 25;
-  else if (distance <= 20) score += 15;
-  else if (distance <= 50) score += 8;
-  else if (distance <= 100) score += 4;
+  if (distance <= 5) score += 20;
+  else if (distance <= 20) score += 12;
+  else if (distance <= 50) score += 6;
+  else if (distance <= 100) score += 3;
   else score += 1;
 
+  // 2. Pays
   const userCountry = userProfile.country || 'Autre';
   const candidateCountry = candidateProfile.country || 'Autre';
   if (userCountry === candidateCountry) score += 10;
 
+  // 3. Différence d'âge
   const userAge = calculateAge(userProfile.birthdate);
   const candidateAge = calculateAge(candidateProfile.birthdate);
   if (userAge && candidateAge) {
@@ -90,9 +113,34 @@ export const computeCompatibilityScore = (userProfile, candidateProfile) => {
     else if (ageGap <= 8) score += 3;
   }
 
+  // 4. Qualité du profil (Bio)
   if (candidateProfile.bio && candidateProfile.bio.length >= 40) score += 5;
   if (candidateProfile.is_online) score += 3;
-  if (candidateProfile.subscriptionTier === 'vip') score += 2;
+  
+  // 5. Statut d'abonnement
+  if (candidateProfile.subscriptionTier === 'vip') score += 3;
+  else if (candidateProfile.subscriptionTier === 'premium') score += 2;
+
+  // 6. Centres d'intérêt en commun (+4 points par intérêt commun, max 16)
+  const userInterests = parseArrayField(userProfile.interests);
+  const candidateInterests = parseArrayField(candidateProfile.interests);
+  if (userInterests.length > 0 && candidateInterests.length > 0) {
+    const commonInterests = userInterests.filter(x => candidateInterests.includes(x));
+    score += Math.min(16, commonInterests.length * 4);
+  }
+
+  // 7. Style de vie en commun (+4 points par style de vie commun, max 16)
+  const userLifestyle = parseArrayField(userProfile.lifestyle);
+  const candidateLifestyle = parseArrayField(candidateProfile.lifestyle);
+  if (userLifestyle.length > 0 && candidateLifestyle.length > 0) {
+    const commonLifestyle = userLifestyle.filter(x => candidateLifestyle.includes(x));
+    score += Math.min(16, commonLifestyle.length * 4);
+  }
+
+  // 8. Croyances communes (+8 points)
+  if (userProfile.beliefs && candidateProfile.beliefs && userProfile.beliefs === candidateProfile.beliefs) {
+    score += 8;
+  }
 
   return Math.min(99, Math.max(25, Math.round(score)));
 };
