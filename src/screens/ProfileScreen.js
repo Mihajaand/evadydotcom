@@ -74,6 +74,7 @@ const ProfileScreen = ({ route, navigation }) => {
   const [selectedInterests, setSelectedInterests] = useState([]);
   const [selectedBeliefs, setSelectedBeliefs] = useState('');
   const [selectedLifestyles, setSelectedLifestyles] = useState([]);
+  const [displayedSubscription, setDisplayedSubscription] = useState(null);
 
   // Charger les données au montage
   useEffect(() => {
@@ -113,6 +114,12 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   }, [myProfile, user, targetUserId, isOwnProfile]);
 
+  useEffect(() => {
+    if (isOwnProfile) {
+      setDisplayedSubscription(subscription);
+    }
+  }, [subscription, isOwnProfile]);
+
   const fetchTargetProfile = async () => {
     try {
       const { data: profileData, error: profileError } = await supabase
@@ -141,6 +148,24 @@ const ProfileScreen = ({ route, navigation }) => {
       setSelectedInterests(profileData.interests || []);
       setSelectedBeliefs(profileData.beliefs || '');
       setSelectedLifestyles(profileData.lifestyle || []);
+
+      // Charger la souscription pour le profil visité
+      try {
+        const { data: subData, error: subError } = await supabase
+          .from('subscriptions')
+          .select('*')
+          .eq('user_id', targetUserId)
+          .single();
+
+        if (!subError && subData) {
+          setDisplayedSubscription(subData);
+        } else {
+          setDisplayedSubscription({ tier: 'free' });
+        }
+      } catch (subErr) {
+        console.error('Erreur chargement abonnement tiers:', subErr);
+        setDisplayedSubscription({ tier: 'free' });
+      }
 
       // Charger les photos en utilisant la même logique que fetchPhotos (DB puis Storage)
       await fetchPhotos(targetUserId, profileData?.avatar_url);
@@ -215,7 +240,7 @@ const ProfileScreen = ({ route, navigation }) => {
 
       // Si la table est vide ou bloquée par RLS, utiliser le Storage comme fallback
       console.warn('fetchPhotos: Table vide ou inaccessible, essai fallback Storage:', { error: error?.message });
-      
+
       const { data: listData, error: listError } = await supabase.storage
         .from('photos')
         .list(effectiveUid, { limit: 100, offset: 0 });
@@ -240,10 +265,10 @@ const ProfileScreen = ({ route, navigation }) => {
           created_at: it.updated_at || new Date().toISOString(),
           name: it.name,
         }));
-        
+
         // Trier les éléments du stockage par date décroissante (les plus récents en premier)
         items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        
+
         console.log('fetchPhotos: Succès, photos chargées=', items.map(it => it.name));
         setPhotos(finalizePhotos(items));
       } else {
@@ -316,7 +341,7 @@ const ProfileScreen = ({ route, navigation }) => {
       }
 
       // Ajouter le préfixe 'profile_' si c'est la première photo
-      const fileName = isProfile 
+      const fileName = isProfile
         ? `${userId}/profile_${Date.now()}.${fileExt}`
         : `${userId}/${Date.now()}.${fileExt}`;
 
@@ -491,7 +516,7 @@ const ProfileScreen = ({ route, navigation }) => {
                 if (!userId) throw new Error('Utilisateur non authentifié');
                 await supabase.from('photos').delete().eq('id', photoId);
               }
-              
+
               if (isDeletingProfile) {
                 const remainingPhotos = photos.filter((p) => p.id !== photoId);
                 const nextProfilePhoto = remainingPhotos[0];
@@ -666,15 +691,15 @@ const ProfileScreen = ({ route, navigation }) => {
           <TouchableOpacity
             style={[
               styles.subBadge,
-              subscription?.tier === 'vip' && styles.subBadgeVip,
-              subscription?.tier === 'premium' && styles.subBadgePremium,
+              displayedSubscription?.tier === 'vip' && styles.subBadgeVip,
+              displayedSubscription?.tier === 'premium' && styles.subBadgePremium,
             ]}
             onPress={() => isOwnProfile && navigation.navigate('Subscription')}
             disabled={!isOwnProfile}
           >
             <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
             <Text style={styles.subBadgeText}>
-              {tierLabel[subscription?.tier] || 'Gratuit'}
+              {tierLabel[displayedSubscription?.tier] || 'Gratuit'}
             </Text>
           </TouchableOpacity>
         )}
@@ -825,7 +850,7 @@ const ProfileScreen = ({ route, navigation }) => {
           {(profile?.profession || profile?.height || profile?.beliefs || (profile?.interests && profile?.interests.length > 0) || (profile?.lifestyle && profile?.lifestyle.length > 0)) ? (
             <View style={styles.detailsSection}>
               <Text style={styles.sectionTitle}>Informations personnelles</Text>
-              
+
               <View style={styles.infoRowGrid}>
                 {profile?.height ? (
                   <View style={styles.infoBadge}>
@@ -833,7 +858,7 @@ const ProfileScreen = ({ route, navigation }) => {
                     <Text style={styles.infoBadgeText}>{profile.height}</Text>
                   </View>
                 ) : null}
-                
+
                 {profile?.profession ? (
                   <View style={styles.infoBadge}>
                     <Ionicons name="briefcase-outline" size={16} color={COLORS.primary} />

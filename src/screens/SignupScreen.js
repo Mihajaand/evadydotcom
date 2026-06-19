@@ -22,7 +22,7 @@ import { customAlert } from '../utils/helpers';
 const Alert = {
   alert: customAlert,
 };
-import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
@@ -483,17 +483,29 @@ const SignupScreen = ({ navigation }) => {
                   </Text>
                 </TouchableOpacity>
 
-                <DateTimePickerModal
-                  isVisible={showDatePicker}
-                  mode="date"
-                  onConfirm={(date) => {
-                    setBirthdate(date);
-                    setShowDatePicker(false);
-                  }}
-                  onCancel={() => setShowDatePicker(false)}
-                  maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
-                  locale="fr"
-                />
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={birthdate || new Date(new Date().getFullYear() - 18, 0, 1)}
+                    mode="date"
+                    maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
+                    locale="fr"
+                    onChange={(event, date) => {
+                      if (date) {
+                        setBirthdate(date);
+                      }
+                      if (Platform.OS === 'android') {
+                        setShowDatePicker(false);
+                      }
+                    }}
+                    onValueChange={(date) => {
+                      if (date) {
+                        setBirthdate(date);
+                      }
+                      setShowDatePicker(false);
+                    }}
+                    onDismiss={() => setShowDatePicker(false)}
+                  />
+                )}
               </>
             )}
 

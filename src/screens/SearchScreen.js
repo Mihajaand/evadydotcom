@@ -29,7 +29,7 @@ const SearchScreen = ({ navigation }) => {
   // Filtres
   const [minAge, setMinAge] = useState(18);
   const [maxAge, setMaxAge] = useState(60);
-  const [maxDistance, setMaxDistance] = useState(100); // km
+  const [maxDistance, setMaxDistance] = useState(20000); // km
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
