@@ -116,7 +116,14 @@ const MessagesScreen = ({ navigation }) => {
     <View style={styles.container}>
       {/* En-tête */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {/* <Image
+            source={require('../../assets/logo.png')}
+            style={{ width: 30, height: 30, marginRight: 8 }}
+            resizeMode="contain"
+          /> */}
+          <Text style={styles.headerTitle}>Messages</Text>
+        </View>
       </View>
 
       {/* Liste des conversations */}

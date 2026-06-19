@@ -354,6 +354,12 @@ const ChatScreen = ({ route, navigation }) => {
           <Ionicons name="arrow-back" size={24} color={COLORS.black} />
         </TouchableOpacity>
 
+        {/* <Image
+          source={require('../../assets/logo.png')}
+          style={{ width: 30, height: 30, marginRight: 8 }}
+          resizeMode="contain"
+        /> */}
+
         <TouchableOpacity
           style={styles.headerInfoContainer}
           onPress={() => navigation.navigate('UserProfile', { userId: partnerId })}

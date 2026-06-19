@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { COLORS } from '../utils/constants';
@@ -243,7 +244,14 @@ export default function SubscriptionScreen() {
     <View style={styles.container}>
       {/* ---- En-tête ---- */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Abonnements</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {/* <Image
+            source={require('../../assets/logo.png')}
+            style={{ width: 30, height: 30, marginRight: 8 }}
+            resizeMode="contain"
+          /> */}
+          <Text style={styles.headerTitle}>Abonnements</Text>
+        </View>
         <Text style={styles.headerSubtitle}>
           Choisissez le plan qui vous convient
         </Text>

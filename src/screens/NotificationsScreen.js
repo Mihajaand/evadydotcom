@@ -145,13 +145,20 @@ const NotificationsScreen = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       {/* En-tête */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backBtn}
-        >
-          <Ionicons name="chevron-back" size={28} color={COLORS.black} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backBtn}
+          >
+            <Ionicons name="chevron-back" size={28} color={COLORS.black} />
+          </TouchableOpacity>
+          {/* <Image
+            source={require('../../assets/logo.png')}
+            style={{ width: 30, height: 30, marginRight: 8 }}
+            resizeMode="contain"
+          /> */}
+          <Text style={styles.headerTitle}>Notifications</Text>
+        </View>
         <View style={{ width: 40 }} />
       </View>
 

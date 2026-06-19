@@ -634,14 +634,21 @@ const ProfileScreen = ({ route, navigation }) => {
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       {/* En-tête profil */}
       <View style={styles.header}>
-        {!isOwnProfile && (
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
-            <Ionicons name="arrow-back" size={24} color={COLORS.black} />
-          </TouchableOpacity>
-        )}
-        <Text style={[styles.headerTitle, !isOwnProfile && { flex: 1 }]}>
-          {isOwnProfile ? 'Mon Profil' : (profile?.full_name || 'Profil')}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          {/* <Image
+            source={require('../../assets/logo.png')}
+            style={{ width: 30, height: 30, marginRight: 8 }}
+            resizeMode="contain"
+          /> */}
+          {!isOwnProfile && (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+              <Ionicons name="arrow-back" size={24} color={COLORS.black} />
+            </TouchableOpacity>
+          )}
+          <Text style={[styles.headerTitle, !isOwnProfile && { flex: 1 }]}>
+            {isOwnProfile ? 'Mon Profil' : (profile?.full_name || 'Profil')}
+          </Text>
+        </View>
         {isOwnProfile && (
           <TouchableOpacity onPress={() => setEditing(!editing)}>
             <Ionicons

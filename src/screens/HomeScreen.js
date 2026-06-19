@@ -20,6 +20,7 @@ import {
   PanResponder, // MODIFICATION : Ajout pour gérer le glissement tactile Tinder
   Image, // MODIFICATION : Ajout pour les avatars sur la carte
   ScrollView, // MODIFICATION : Ajout pour les barres de défilement de filtres
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Callout } from 'react-native-maps'; // MODIFICATION : Intégration de la carte interactive
@@ -750,11 +751,21 @@ const HomeScreen = ({ navigation }) => {
     <View style={styles.container}>
       {/* En-tête */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Découvrir</Text>
-          <Text style={styles.headerCount}>
-            {filteredProfiles.length - currentIndex > 0 ? filteredProfiles.length - currentIndex : 0} profil{filteredProfiles.length - currentIndex > 1 ? 's' : ''}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {/* <Image
+            source={require('../../assets/logo.png')}
+            style={{ width: 30, height: 30, marginRight: 8 }}
+            resizeMode="contain"
+          /> */}
+          <View>
+            <Text style={styles.headerTitle}>
+              <Text style={{ color: COLORS.primary }}>E</Text>
+              <Text style={{ color: COLORS.gray }}>-Vady</Text>
+            </Text>
+            <Text style={styles.headerCount}>
+              {filteredProfiles.length - currentIndex > 0 ? filteredProfiles.length - currentIndex : 0} profil{filteredProfiles.length - currentIndex > 1 ? 's' : ''}
+            </Text>
+          </View>
         </View>
         <TouchableOpacity
           style={styles.notificationBtn}
@@ -1121,9 +1132,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: COLORS.black,
+    fontSize: 34,
+    fontFamily: Platform.OS === 'ios' ? 'Snell Roundhand' : 'serif',
+    fontWeight: 'bold',
+    fontStyle: Platform.OS === 'ios' ? 'normal' : 'italic',
   },
   headerCount: {
     fontSize: 14,
