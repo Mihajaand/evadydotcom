@@ -19,6 +19,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { COLORS } from '../utils/constants';
 import { STRIPE_CONFIG } from '../utils/stripe';
 import useAuthStore from '../store/authStore';
+import useSubscriptionStore from '../store/subscriptionStore';
 import { supabase } from '../supabase/client';
 
 // ---- Définition des plans ----
@@ -73,12 +74,17 @@ const PLANS = [
 
 export default function SubscriptionScreen() {
   const { profile } = useAuthStore();
+  const { subscription, fetchSubscription, cancelSubscription } = useSubscriptionStore();
   const [loading, setLoading] = useState(null); // plan en cours de chargement
-  const [currentTier, setCurrentTier] = useState('free');
+  const [cancelling, setCancelling] = useState(false);
+
+  const currentTier = subscription?.tier || 'free';
 
   // ---- Charger l'abonnement actuel ----
   useEffect(() => {
-    refreshSubscription();
+    if (profile?.id) {
+      fetchSubscription(profile.id);
+    }
   }, [profile]);
 
   // ---- Gérer l'achat d'un plan ----
@@ -131,8 +137,9 @@ export default function SubscriptionScreen() {
 
       // Quand l'utilisateur revient dans l'app, vérifier l'abonnement
       if (result.type === 'cancel' || result.type === 'dismiss') {
-        // Rafraîchir le profil pour voir si le paiement a été traité
-        await refreshSubscription();
+        if (profile?.id) {
+          await fetchSubscription(profile.id);
+        }
       }
     } catch (error) {
       console.error('Erreur paiement:', error);
@@ -145,21 +152,45 @@ export default function SubscriptionScreen() {
     }
   };
 
-  // ---- Rafraîchir l'abonnement depuis Supabase ----
-  const refreshSubscription = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('tier')
-        .eq('user_id', profile.id)
-        .single();
+  // ---- Gérer l'annulation d'un plan ----
+  const handleCancelSubscription = () => {
+    if (!subscription?.expires_at) return;
 
-      if (!error && data) {
-        setCurrentTier(data.tier || 'free');
-      }
-    } catch (e) {
-      console.log('Erreur refresh subscription:', e);
-    }
+    const formattedDate = new Date(subscription.expires_at).toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    Alert.alert(
+      "Annuler l'abonnement",
+      `Êtes-vous sûr de vouloir désactiver le renouvellement automatique ? Vos avantages resteront actifs jusqu'au ${formattedDate}.`,
+      [
+        { text: "Conserver mon abonnement", style: "cancel" },
+        {
+          text: "Désactiver le renouvellement",
+          style: "destructive",
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              await cancelSubscription(profile.id);
+              Alert.alert(
+                "Renouvellement annulé",
+                "Votre abonnement ne sera pas renouvelé à sa date d'échéance."
+              );
+            } catch (error) {
+              console.error("Erreur annulation:", error);
+              Alert.alert(
+                "Erreur",
+                error.message || "Impossible de désactiver le renouvellement pour le moment. Veuillez réessayer."
+              );
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // ---- Rendu d'une carte de plan ----
@@ -245,11 +276,6 @@ export default function SubscriptionScreen() {
       {/* ---- En-tête ---- */}
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {/* <Image
-            source={require('../../assets/logo.png')}
-            style={{ width: 30, height: 30, marginRight: 8 }}
-            resizeMode="contain"
-          /> */}
           <Text style={styles.headerTitle}>Abonnements</Text>
         </View>
         <Text style={styles.headerSubtitle}>
@@ -262,12 +288,57 @@ export default function SubscriptionScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* ---- Carte Abonnement Actuel (si abonné) ---- */}
+        {currentTier !== 'free' && subscription && (
+          <View style={styles.activeSubscriptionCard}>
+            <Text style={styles.activeSubscriptionTitle}>Votre abonnement actuel</Text>
+            
+            <View style={styles.activeSubscriptionRow}>
+              <Text style={styles.activeSubscriptionPlanName}>
+                E-VADY {PLANS.find(p => p.id === currentTier)?.name || currentTier.toUpperCase()}
+              </Text>
+              <View style={[
+                styles.statusBadge, 
+                { backgroundColor: subscription.cancel_at_period_end ? '#FFEBEB' : '#E8F5E9' }
+              ]}>
+                <Text style={[
+                  styles.statusBadgeText, 
+                  { color: subscription.cancel_at_period_end ? '#D32F2F' : '#2E7D32' }
+                ]}>
+                  {subscription.cancel_at_period_end ? 'Résilié' : 'Actif'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.activeSubscriptionDetails}>
+              {subscription.cancel_at_period_end
+                ? `Votre abonnement prendra fin le ${new Date(subscription.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}. Le renouvellement automatique est désactivé.`
+                : `Votre abonnement sera automatiquement renouvelé le ${new Date(subscription.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}.`
+              }
+            </Text>
+
+            {!subscription.cancel_at_period_end && (
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={handleCancelSubscription}
+                disabled={cancelling}
+              >
+                {cancelling ? (
+                  <ActivityIndicator color="#E91E63" />
+                ) : (
+                  <Text style={styles.cancelButtonText}>Annuler l'abonnement</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         {PLANS.map(renderPlanCard)}
 
         {/* ---- Mentions légales ---- */}
         <Text style={styles.legalText}>
-          Les abonnements sont renouvelés automatiquement chaque mois.
-          Vous pouvez annuler à tout moment depuis votre espace Stripe.
+          Les abonnements payants sont renouvelés automatiquement chaque mois.
+          Vous pouvez annuler le renouvellement à tout moment via le bouton ci-dessus.
         </Text>
       </ScrollView>
     </View>
@@ -403,5 +474,63 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 8,
     paddingHorizontal: 20,
+  },
+  activeSubscriptionCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  activeSubscriptionTitle: {
+    fontSize: 14,
+    color: '#777',
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  activeSubscriptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  activeSubscriptionPlanName: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  activeSubscriptionDetails: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  cancelButton: {
+    borderWidth: 1,
+    borderColor: '#E91E63',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#E91E63',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

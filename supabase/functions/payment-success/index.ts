@@ -52,7 +52,9 @@ serve(async (req: Request) => {
         tier: plan,
         stripe_session_id: sessionId,
         stripe_subscription_id: session.subscription || null,
+        stripe_sub_id: session.subscription || null,
         expires_at: expiresAt.toISOString(),
+        cancel_at_period_end: false,
       }, {
         onConflict: 'user_id',
       });
