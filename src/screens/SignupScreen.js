@@ -333,7 +333,7 @@ const SignupScreen = ({ navigation }) => {
         Alert.alert('Erreur', `Profil partiellement créé: ${updateError.message}. Vous pouvez mettre à jour votre profil plus tard.`);
       }
 
-      console.log('Profil créé lors de l\'inscription:', updatedProfile);
+     
 
       // 5. IMPORTANT : Recharger le profil du store pour que l'app affiche les bonnes données
       // Sans ceci, le store aurait les données de base mais pas avatar_url, profession, etc.
