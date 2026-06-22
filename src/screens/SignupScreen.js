@@ -87,7 +87,9 @@ const SignupScreen = ({ navigation }) => {
    */
   const formatDate = (date) => {
     if (!date) return '';
-    return date.toLocaleDateString('fr-FR', {
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('fr-FR', {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
@@ -490,8 +492,10 @@ const SignupScreen = ({ navigation }) => {
                     maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
                     locale="fr"
                     onChange={(event, date) => {
-                      if (date) {
-                        setBirthdate(date);
+                      // Handle cases where the first argument is a Date, or where event.nativeEvent has timestamp
+                      const selectedDate = date || (event instanceof Date ? event : (event?.nativeEvent?.timestamp ? new Date(event.nativeEvent.timestamp) : null));
+                      if (selectedDate) {
+                        setBirthdate(selectedDate instanceof Date ? selectedDate : new Date(selectedDate));
                       }
                       if (Platform.OS === 'android') {
                         setShowDatePicker(false);
@@ -499,7 +503,7 @@ const SignupScreen = ({ navigation }) => {
                     }}
                     onValueChange={(date) => {
                       if (date) {
-                        setBirthdate(date);
+                        setBirthdate(date instanceof Date ? date : new Date(date));
                       }
                       setShowDatePicker(false);
                     }}

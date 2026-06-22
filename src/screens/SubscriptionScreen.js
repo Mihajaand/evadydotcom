@@ -138,7 +138,23 @@ export default function SubscriptionScreen() {
       // Quand l'utilisateur revient dans l'app, vérifier l'abonnement
       if (result.type === 'cancel' || result.type === 'dismiss') {
         if (profile?.id) {
+          const oldTier = currentTier;
           await fetchSubscription(profile.id);
+          const updatedSub = useSubscriptionStore.getState().subscription;
+          const newTier = updatedSub?.tier || 'free';
+          
+          if (newTier !== 'free' && newTier !== oldTier) {
+            const activePlan = PLANS.find(p => p.id === newTier);
+            const planName = activePlan ? activePlan.name : newTier.toUpperCase();
+            Toast.show({
+              type: 'success',
+              text1: 'Abonnement activé',
+              text2: `Votre abonnement E-VADY ${planName} est désormais actif.`,
+              position: 'bottom',
+              visibilityTime: 4000,
+            });
+            navigation.navigate('MainTabs', { screen: 'Accueil' });
+          }
         }
       }
     } catch (error) {
@@ -333,7 +349,10 @@ export default function SubscriptionScreen() {
           </View>
         )}
 
-        {PLANS.map(renderPlanCard)}
+        {(currentTier !== 'free'
+          ? PLANS.filter(plan => plan.id === currentTier)
+          : PLANS
+        ).map(renderPlanCard)}
 
         {/* ---- Mentions légales ---- */}
         <Text style={styles.legalText}>

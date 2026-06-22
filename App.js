@@ -12,6 +12,7 @@ import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Toast from 'react-native-toast-message';
 
 import AppNavigator from './src/navigation/AppNavigator';
 import LoadingScreen from './src/components/LoadingScreen';
@@ -47,6 +48,7 @@ export default function App() {
         <StatusBar style="dark" />
         <AppNavigator />
       </NavigationContainer>
+      <Toast />
     </GestureHandlerRootView>
   );
 }
