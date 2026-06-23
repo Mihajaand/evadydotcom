@@ -490,9 +490,9 @@ const SignupScreen = ({ navigation }) => {
                     value={birthdate || new Date(new Date().getFullYear() - 18, 0, 1)}
                     mode="date"
                     maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
+                    minimumDate={new Date(1900, 0, 1)}
                     locale="fr"
-                    onChange={(event, date) => {
-                      // Handle cases where the first argument is a Date, or where event.nativeEvent has timestamp
+                    onValueChange={(event, date) => {
                       const selectedDate = date || (event instanceof Date ? event : (event?.nativeEvent?.timestamp ? new Date(event.nativeEvent.timestamp) : null));
                       if (selectedDate) {
                         setBirthdate(selectedDate instanceof Date ? selectedDate : new Date(selectedDate));
@@ -500,12 +500,6 @@ const SignupScreen = ({ navigation }) => {
                       if (Platform.OS === 'android') {
                         setShowDatePicker(false);
                       }
-                    }}
-                    onValueChange={(date) => {
-                      if (date) {
-                        setBirthdate(date instanceof Date ? date : new Date(date));
-                      }
-                      setShowDatePicker(false);
                     }}
                     onDismiss={() => setShowDatePicker(false)}
                   />
