@@ -21,6 +21,7 @@ import { STRIPE_CONFIG } from '../utils/stripe';
 import useAuthStore from '../store/authStore';
 import useSubscriptionStore from '../store/subscriptionStore';
 import { supabase } from '../supabase/client';
+import Toast from 'react-native-toast-message';
 
 // ---- Définition des plans ----
 const PLANS = [
@@ -72,7 +73,7 @@ const PLANS = [
   },
 ];
 
-export default function SubscriptionScreen() {
+export default function SubscriptionScreen({ navigation }) {
   const { profile } = useAuthStore();
   const { subscription, fetchSubscription, cancelSubscription } = useSubscriptionStore();
   const [loading, setLoading] = useState(null); // plan en cours de chargement
@@ -130,26 +131,32 @@ export default function SubscriptionScreen() {
       }
 
       // ---- Ouvrir la page de paiement Stripe dans le navigateur ----
-      const result = await WebBrowser.openBrowserAsync(data.url, {
-        dismissButtonStyle: 'close',
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-      });
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        'evady://payment-success'
+      );
 
       // Quand l'utilisateur revient dans l'app, vérifier l'abonnement
-      if (result.type === 'cancel' || result.type === 'dismiss') {
+      if (result.type === 'success' || result.type === 'cancel' || result.type === 'dismiss') {
         if (profile?.id) {
-          const oldTier = currentTier;
+          // Re-charger l'abonnement et le profil utilisateur pour mettre à jour les badges
           await fetchSubscription(profile.id);
+          try {
+            await useAuthStore.getState().fetchProfile(profile.id);
+          } catch (profileErr) {
+            console.error('Erreur rechargement profil:', profileErr);
+          }
+          
           const updatedSub = useSubscriptionStore.getState().subscription;
           const newTier = updatedSub?.tier || 'free';
           
-          if (newTier !== 'free' && newTier !== oldTier) {
+          if (newTier !== 'free') {
             const activePlan = PLANS.find(p => p.id === newTier);
             const planName = activePlan ? activePlan.name : newTier.toUpperCase();
             Toast.show({
               type: 'success',
               text1: 'Abonnement activé',
-              text2: `Votre abonnement E-VADY ${planName} est désormais actif.`,
+              text2: `Abonnement ${planName} Activé`,
               position: 'bottom',
               visibilityTime: 4000,
             });

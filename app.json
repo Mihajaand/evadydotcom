@@ -1,6 +1,7 @@
 {
   "expo": {
     "name": "E-VADY",
+    "scheme": "evady",
     "slug": "e-vady",
     "version": "1.0.0",
     "orientation": "portrait",
