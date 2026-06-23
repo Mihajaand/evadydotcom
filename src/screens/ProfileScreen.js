@@ -205,14 +205,6 @@ const ProfileScreen = ({ route, navigation }) => {
 
       console.log('fetchPhotos: Résultat DB -', { error: error?.message, dataCount: data?.length || 0 });
 
-      // Si la requête DB renvoie des lignes, on les utilise.
-      if (!error && data && data.length > 0) {
-        console.log('fetchPhotos: Photos trouvées en DB, count=', data.length);
-        setPhotos(finalizePhotos(data));
-        setLoadingPhotos(false);
-        return;
-      }
-
       // Si la table est vide ou bloquée par RLS, utiliser le Storage comme fallback
       console.warn('fetchPhotos: Table vide ou inaccessible, essai fallback Storage:', { error: error?.message });
       
@@ -264,6 +256,11 @@ const ProfileScreen = ({ route, navigation }) => {
   const handleAddPhoto = async () => {
     if (photos.length >= 6) {
       Alert.alert('Limite atteinte', 'Maximum 6 photos autorisées sur votre profil');
+      return;
+    }
+
+    if (!user?.id) {
+      Alert.alert('Erreur', 'Session invalide. Veuillez vous reconnecter et réessayer.');
       return;
     }
 
@@ -370,6 +367,11 @@ const ProfileScreen = ({ route, navigation }) => {
 
     if (result.canceled) return;
 
+    if (!user?.id) {
+      Alert.alert('Erreur', 'Session invalide. Veuillez vous reconnecter et réessayer.');
+      return;
+    }
+
     setLoadingAvatar(true);
     try {
       const file = result.assets[0];
@@ -427,9 +429,12 @@ const ProfileScreen = ({ route, navigation }) => {
           console.warn('Update DB error:', updateError?.message);
         }
 
-        const { error: insertError } = await supabase
-          .from('photos')
-          .insert({ user_id: userId, url: urlData.publicUrl, is_profile: true });
+      if (insertError) {
+        if (String(insertError.message || '').toLowerCase().includes('row-level security')) {
+          Alert.alert('Autorisation refusée', "Impossible de modifier la photo de profil: la politique RLS empêche l'insertion. Vérifiez la session ou les policies Supabase.");
+        }
+        throw new Error(`Insert DB: ${insertError.message}`);
+      }
 
         if (insertError) {
           console.warn('Insert DB error:', insertError?.message);

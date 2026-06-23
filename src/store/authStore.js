@@ -111,7 +111,7 @@ const useAuthStore = create((set, get) => ({
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     set({ profile: data });
     

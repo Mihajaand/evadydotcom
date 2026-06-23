@@ -253,6 +253,13 @@ const SignupScreen = ({ navigation }) => {
         longitude: location?.longitude || 0,
       });
 
+      // Assurer que le client Supabase a bien récupéré la session avant d'uploader
+      try {
+        await supabase.auth.getSession();
+      } catch (sessErr) {
+        console.warn('Impossible de récupérer la session immédiatement après signup:', sessErr?.message || sessErr);
+      }
+
       const currentUserId = createdUserSession.user.id;
 
       // 2. Uploader l'avatar dans le stockage public
@@ -287,7 +294,12 @@ const SignupScreen = ({ navigation }) => {
           upsert: false,
         });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        if (String(uploadError.message || '').toLowerCase().includes('row-level security')) {
+          Alert.alert('Autorisation refusée', "Impossible d'uploader la photo: la politique RLS bloque l'opération. Vérifiez les policies Supabase ou la session utilisateur.");
+        }
+        throw uploadError;
+      }
 
       const { data: urlData } = supabase.storage
         .from('photos')

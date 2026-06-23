@@ -31,6 +31,10 @@ const useMessageStore = create((set, get) => ({
    * Trie par dernier message envoyé
    */
   fetchConversations: async (userId, showLoading = true) => {
+    if (!userId) {
+      set({ conversations: [], unreadTotal: 0, loading: false });
+      return [];
+    }
     if (showLoading) set({ loading: true });
 
     try {
@@ -89,6 +93,11 @@ const useMessageStore = create((set, get) => ({
    * Récupère les messages d'une conversation spécifique
    */
   fetchMessages: async (userId, partnerId) => {
+    if (!userId || !partnerId) {
+      set({ currentMessages: [] });
+      return [];
+    }
+
     const { data, error } = await supabase
       .from('messages')
       .select('*')
