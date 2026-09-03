@@ -15,7 +15,6 @@ import {
   Platform,
   TouchableOpacity,
   Image,
-  ActivityIndicator,
 } from 'react-native';
 import { customAlert } from '../utils/helpers';
 
@@ -78,9 +77,7 @@ const SignupScreen = ({ navigation }) => {
   const [selectedLifestyles, setSelectedLifestyles] = useState([]);
 
   const signup = useAuthStore((state) => state.signup);
-  const updateProfile = useAuthStore((state) => state.updateProfile);
   const fetchProfile = useAuthStore((state) => state.fetchProfile);
-  const user = useAuthStore((state) => state.user);
 
   /**
    * Formatage de la date
@@ -117,78 +114,73 @@ const SignupScreen = ({ navigation }) => {
     setGeneratedCode(code);
 
     try {
-  const serviceId = process.env.EXPO_PUBLIC_EMAILJS_SERVICE_ID;
-  const templateId = process.env.EXPO_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const publicKey = process.env.EXPO_PUBLIC_EMAILJS_PUBLIC_KEY;
-  const privateKey = process.env.EXPO_PUBLIC_EMAILJS_PRIVATE_KEY;
+      const serviceId = process.env.EXPO_PUBLIC_EMAILJS_SERVICE_ID;
+      const templateId = process.env.EXPO_PUBLIC_EMAILJS_TEMPLATE_ID;
+      const publicKey = process.env.EXPO_PUBLIC_EMAILJS_PUBLIC_KEY;
+      const privateKey = process.env.EXPO_PUBLIC_EMAILJS_PRIVATE_KEY;
 
-  if (!serviceId || !templateId || !publicKey) {
-    console.log('[Dev] Clefs EmailJS manquantes. Code de vérification :', code);
+      if (!serviceId || !templateId || !publicKey) {
+        console.log('[Dev] Clefs EmailJS manquantes. Code de vérification :', code);
 
-    Alert.alert(
-      'Mode Développement',
-      `Clefs EmailJS non configurées. Code simulé : ${code}`
-    );
+        Alert.alert(
+          'Mode Développement',
+          `Clefs EmailJS non configurées. Code simulé : ${code}`
+        );
 
-    setStep(2);
-    return;
-  }
+        setStep(2);
+        return;
+      }
 
-  // 🔥 ENVOI EMAILJS
-  const response = await fetch(
-    'https://api.emailjs.com/api/v1.0/email/send',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        service_id: serviceId,
-        template_id: templateId,
+      // ENVOI EMAILJS
+      const response = await fetch(
+        'https://api.emailjs.com/api/v1.0/email/send',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            service_id: serviceId,
+            template_id: templateId,
+            user_id: publicKey,
+            ...(privateKey && { accessToken: privateKey }),
+            template_params: {
+              to_email: email.trim().toLowerCase(),
+              email: email.trim().toLowerCase(),
+              user_email: email.trim().toLowerCase(),
+              to_name: fullName.trim(),
+              verification_code: code,
+            },
+          }),
+        }
+      );
 
-        // ✅ UNIQUEMENT user_id (qui correspond à la public_key d'EmailJS)
-        user_id: publicKey,
+      const resultText = await response.text();
 
-        // Si le mode strict est activé sur EmailJS, la clé privée est requise
-        ...(privateKey && { accessToken: privateKey }),
+      if (!response.ok) {
+        throw new Error(resultText || 'Erreur lors de l\'envoi de l\'email');
+      }
 
-        template_params: {
-          to_email: email.trim().toLowerCase(),
-          email: email.trim().toLowerCase(),
-          user_email: email.trim().toLowerCase(),
-          to_name: fullName.trim(),
-          verification_code: code,
-        },
-      }),
+      Alert.alert(
+        'Succès',
+        'Un code de vérification a été envoyé sur votre email.'
+      );
+
+      setStep(2);
+
+    } catch (error) {
+      console.error('Erreur EmailJS:', error);
+
+      Alert.alert(
+        'Erreur d\'envoi',
+        `Impossible d'envoyer le code. Code de secours : ${code}`
+      );
+
+      setStep(2);
+
+    } finally {
+      setLoading(false);
     }
-  );
-
-  const resultText = await response.text();
-
-  if (!response.ok) {
-    throw new Error(resultText || 'Erreur lors de l\'envoi de l\'email');
-  }
-
-  Alert.alert(
-    'Succès',
-    'Un code de vérification a été envoyé sur votre email.'
-  );
-
-  setStep(2);
-
-} catch (error) {
-  console.error('Erreur EmailJS:', error);
-
-  Alert.alert(
-    'Erreur d\'envoi',
-    `Impossible d'envoyer le code. Code de secours : ${code}`
-  );
-
-  setStep(2);
-
-} finally {
-  setLoading(false);
-}
   };
 
   /**
@@ -203,19 +195,42 @@ const SignupScreen = ({ navigation }) => {
   };
 
   /**
-   * ÉTAPE 3 : Sélection de la photo
+   * ÉTAPE 3 : Sélection de la photo avec confirmation Valider / Annuler
    */
   const handleSelectPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      return Alert.alert(
+        'Permission requise',
+        'Accès à la galerie nécessaire pour choisir une photo.'
+      );
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false, // Désactive l'édition native pour éviter les UI inconsistantes sur Android
       quality: 0.8,
       base64: true,
     });
 
-    if (!result.canceled) {
-      setProfilePhoto(result.assets[0]);
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const selectedAsset = result.assets[0];
+
+      // Dialogue explicite Valider / Annuler (iOS & Android)
+      Alert.alert(
+        'Confirmer la photo',
+        'Voulez-vous utiliser cette image comme photo de profil ?',
+        [
+          {
+            text: 'Annuler',
+            style: 'cancel',
+          },
+          {
+            text: 'Valider',
+            onPress: () => setProfilePhoto(selectedAsset),
+          },
+        ]
+      );
     }
   };
 
@@ -297,8 +312,7 @@ const SignupScreen = ({ navigation }) => {
 
       const avatarPublicUrl = urlData.publicUrl;
 
-      // 3. Attendre que la session soit bien établie avant l'insert (auth.uid() doit être disponible)
-      // Petite pause pour que la session soit propagée dans le context Supabase
+      // 3. Attendre que la session soit bien établie avant l'insert
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // 3bis. Enregistrer l'avatar dans la table des photos
@@ -314,9 +328,7 @@ const SignupScreen = ({ navigation }) => {
       }
 
       // 4. Mettre à jour le profil avec toutes les nouvelles informations de personnalisation
-      // ⚠️ Utiliser directement supabase au lieu de updateProfile() du store
-      // car le store n'est pas encore à jour après le signup (user pas encore initié)
-      const { data: updatedProfile, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from('profiles')
         .update({
           avatar_url: avatarPublicUrl,
@@ -335,10 +347,7 @@ const SignupScreen = ({ navigation }) => {
         Alert.alert('Erreur', `Profil partiellement créé: ${updateError.message}. Vous pouvez mettre à jour votre profil plus tard.`);
       }
 
-     
-
-      // 5. IMPORTANT : Recharger le profil du store pour que l'app affiche les bonnes données
-      // Sans ceci, le store aurait les données de base mais pas avatar_url, profession, etc.
+      // 5. Recharger le profil du store
       await fetchProfile(currentUserId);
 
       Alert.alert('Inscription réussie !', 'Bienvenue sur E-VADY !');
@@ -445,7 +454,7 @@ const SignupScreen = ({ navigation }) => {
               ))}
             </View>
 
-             <Text style={styles.label}>Date de naissance</Text>
+            <Text style={styles.label}>Date de naissance</Text>
             {Platform.OS === 'web' ? (
               <input
                 type="date"
@@ -583,6 +592,21 @@ const SignupScreen = ({ navigation }) => {
                   </View>
                 )}
               </TouchableOpacity>
+
+              {/* Boutons d'action explicites sous la photo */}
+              {profilePhoto && (
+                <View style={styles.photoActionRow}>
+                  <TouchableOpacity style={styles.changePhotoBtn} onPress={handleSelectPhoto}>
+                    <Ionicons name="image-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.changePhotoText}>Changer</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.removePhotoBtn} onPress={() => setProfilePhoto(null)}>
+                    <Ionicons name="trash-outline" size={16} color="#E53E3E" />
+                    <Text style={styles.removePhotoText}>Annuler</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* Sélection de Profession */}
@@ -827,7 +851,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  // Styles Etape 2
+  // Styles Étape 2
   centerBox: {
     alignItems: 'center',
     marginTop: 20,
@@ -865,7 +889,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
   },
-  // Styles Etape 3
+  // Styles Étape 3
   sectionHeader: {
     fontSize: 18,
     fontWeight: '800',
@@ -906,6 +930,39 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 6,
+  },
+  photoActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  changePhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  changePhotoText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  removePhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#FEE2E2',
+  },
+  removePhotoText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E53E3E',
   },
   chipsContainer: {
     flexDirection: 'row',

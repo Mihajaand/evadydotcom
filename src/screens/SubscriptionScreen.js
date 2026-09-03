@@ -1,7 +1,7 @@
 // ============================================================
 // E-VADY — Écran Abonnements
-// Affiche les 4 plans et redirige vers Stripe Checkout
-// Compatible Expo Go (pas de SDK natif requis)
+// Affiche tous les plans et redirige vers Stripe Checkout
+// Compatible Expo Go et Web
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
@@ -13,15 +13,16 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Image,
+  Platform,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import Toast from 'react-native-toast-message';
+
+// Imports des modules internes
 import { COLORS } from '../utils/constants';
 import { STRIPE_CONFIG } from '../utils/stripe';
 import useAuthStore from '../store/authStore';
 import useSubscriptionStore from '../store/subscriptionStore';
-import { supabase } from '../supabase/client';
-import Toast from 'react-native-toast-message';
 
 // ---- Définition des plans ----
 const PLANS = [
@@ -76,10 +77,16 @@ const PLANS = [
 export default function SubscriptionScreen({ navigation }) {
   const { profile } = useAuthStore();
   const { subscription, fetchSubscription, cancelSubscription } = useSubscriptionStore();
-  const [loading, setLoading] = useState(null); // plan en cours de chargement
+  const [loading, setLoading] = useState(null); // ID du plan en cours de traitement
   const [cancelling, setCancelling] = useState(false);
 
-  const currentTier = subscription?.tier || 'free';
+  // Un abonnement est expiré si la date d'expiration est atteinte
+  const isExpired = subscription?.expires_at
+    ? new Date(subscription.expires_at) < new Date()
+    : false;
+
+  // Si le plan est expiré, l'utilisateur repasse virtuellement en 'free'
+  const currentTier = isExpired ? 'free' : (subscription?.tier || 'free');
 
   // ---- Charger l'abonnement actuel ----
   useEffect(() => {
@@ -88,23 +95,23 @@ export default function SubscriptionScreen({ navigation }) {
     }
   }, [profile]);
 
-  // ---- Gérer l'achat d'un plan ----
+  // ---- Gérer la souscription ou le renouvellement ----
   const handleSubscribe = async (plan) => {
-    // Si c'est le plan gratuit ou déjà le plan actuel, ne rien faire
     if (plan.id === 'free') {
-      Alert.alert('Plan Gratuit', 'Vous êtes déjà sur le plan gratuit.');
+      Alert.alert('Plan Gratuit', 'Vous êtes actuellement sur le plan gratuit.');
       return;
     }
 
-    if (plan.id === currentTier) {
-      Alert.alert('Déjà abonné', `Vous êtes déjà sur le plan ${plan.name}.`);
+    // Interdire uniquement si l'utilisateur possède déjà le plan ET qu'il n'est pas expiré
+    if (plan.id === currentTier && !isExpired && !subscription?.cancel_at_period_end) {
+      Alert.alert('Déjà abonné', `Vous bénéficiez déjà du plan ${plan.name}.`);
       return;
     }
 
     setLoading(plan.id);
 
     try {
-      // ---- Appeler l'Edge Function pour créer la Checkout Session ----
+      // Appeler l'Edge Function Supabase pour générer la session Checkout Stripe
       const response = await fetch(
         `${STRIPE_CONFIG.FUNCTION_URL}/create-checkout-session`,
         {
@@ -127,19 +134,25 @@ export default function SubscriptionScreen({ navigation }) {
       }
 
       if (!data.url) {
-        throw new Error('URL de paiement non reçue');
+        throw new Error('URL de paiement introuvable');
       }
 
-      // ---- Ouvrir la page de paiement Stripe dans le navigateur ----
+      // 🔴 CORRECTION : Traitement selon la plateforme pour éviter le blocage de Pop-up
+      if (Platform.OS === 'web') {
+        // Sur Navigateur Web : Redirection directe pour éviter la prévention anti pop-up
+        window.location.href = data.url;
+        return;
+      }
+
+      // Sur Mobile (iOS / Android) : Ouverture de la session WebBrowser
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         'evady://payment-success'
       );
 
-      // Quand l'utilisateur revient dans l'app, vérifier l'abonnement
-      if (result.type === 'success' || result.type === 'cancel' || result.type === 'dismiss') {
+      // Traitement du retour utilisateur sur mobile
+      if (['success', 'cancel', 'dismiss'].includes(result.type)) {
         if (profile?.id) {
-          // Re-charger l'abonnement et le profil utilisateur pour mettre à jour les badges
           await fetchSubscription(profile.id);
           try {
             await useAuthStore.getState().fetchProfile(profile.id);
@@ -151,31 +164,33 @@ export default function SubscriptionScreen({ navigation }) {
           const newTier = updatedSub?.tier || 'free';
           
           if (newTier !== 'free') {
-            const activePlan = PLANS.find(p => p.id === newTier);
+            const activePlan = PLANS.find((p) => p.id === newTier);
             const planName = activePlan ? activePlan.name : newTier.toUpperCase();
+            
             Toast.show({
               type: 'success',
               text1: 'Abonnement activé',
-              text2: `Abonnement ${planName} Activé`,
+              text2: `Votre abonnement ${planName} est désormais actif.`,
               position: 'bottom',
               visibilityTime: 4000,
             });
+            
             navigation.navigate('MainTabs', { screen: 'Accueil' });
           }
         }
       }
     } catch (error) {
-      console.error('Erreur paiement:', error);
+      console.error('Erreur lors du paiement:', error);
       Alert.alert(
         'Erreur de paiement',
-        error.message || 'Une erreur est survenue. Veuillez réessayer.'
+        error.message || 'Une erreur est survenue lors de la redirection vers le paiement.'
       );
     } finally {
       setLoading(null);
     }
   };
 
-  // ---- Gérer l'annulation d'un plan ----
+  // ---- Gérer l'annulation du renouvellement ----
   const handleCancelSubscription = () => {
     if (!subscription?.expires_at) return;
 
@@ -187,7 +202,7 @@ export default function SubscriptionScreen({ navigation }) {
 
     Alert.alert(
       "Annuler l'abonnement",
-      `Êtes-vous sûr de vouloir désactiver le renouvellement automatique ? Vos avantages resteront actifs jusqu'au ${formattedDate}.`,
+      `Êtes-vous sûr de vouloir désactiver le renouvellement automatique ? Vos avantages resteront valides jusqu'au ${formattedDate}.`,
       [
         { text: "Conserver mon abonnement", style: "cancel" },
         {
@@ -198,14 +213,14 @@ export default function SubscriptionScreen({ navigation }) {
             try {
               await cancelSubscription(profile.id);
               Alert.alert(
-                "Renouvellement annulé",
-                "Votre abonnement ne sera pas renouvelé à sa date d'échéance."
+                "Renouvellement désactivé",
+                "Votre abonnement prendra fin à la date d'échéance sans être reconduit."
               );
             } catch (error) {
               console.error("Erreur annulation:", error);
               Alert.alert(
                 "Erreur",
-                error.message || "Impossible de désactiver le renouvellement pour le moment. Veuillez réessayer."
+                error.message || "Impossible de désactiver le renouvellement automatique."
               );
             } finally {
               setCancelling(false);
@@ -218,7 +233,7 @@ export default function SubscriptionScreen({ navigation }) {
 
   // ---- Rendu d'une carte de plan ----
   const renderPlanCard = (plan) => {
-    const isCurrentPlan = currentTier === plan.id;
+    const isCurrentPlan = currentTier === plan.id && !isExpired;
     const isLoading = loading === plan.id;
 
     return (
@@ -230,38 +245,31 @@ export default function SubscriptionScreen({ navigation }) {
           isCurrentPlan && styles.currentCard,
         ]}
       >
-        {/* Badge "Populaire" */}
         {plan.popular && (
           <View style={styles.popularBadge}>
             <Text style={styles.popularBadgeText}>⭐ POPULAIRE</Text>
           </View>
         )}
 
-        {/* Badge "Plan actuel" */}
         {isCurrentPlan && (
           <View style={[styles.popularBadge, { backgroundColor: COLORS.secondary }]}>
             <Text style={styles.popularBadgeText}>✓ PLAN ACTUEL</Text>
           </View>
         )}
 
-        {/* Nom du plan */}
         <Text style={[styles.planName, { color: plan.color }]}>
           {plan.name}
         </Text>
 
-        {/* Prix */}
         <View style={styles.priceRow}>
           <Text style={styles.price}>{plan.price}</Text>
           <Text style={styles.period}>{plan.period}</Text>
         </View>
 
-        {/* Messages */}
         <Text style={styles.messagesText}>{plan.messages}</Text>
 
-        {/* Séparateur */}
         <View style={styles.separator} />
 
-        {/* Fonctionnalités */}
         {plan.features.map((feature, index) => (
           <View key={index} style={styles.featureRow}>
             <Text style={styles.featureCheck}>✓</Text>
@@ -269,7 +277,6 @@ export default function SubscriptionScreen({ navigation }) {
           </View>
         ))}
 
-        {/* Bouton d'action */}
         <TouchableOpacity
           style={[
             styles.subscribeButton,
@@ -285,7 +292,7 @@ export default function SubscriptionScreen({ navigation }) {
               {isCurrentPlan
                 ? 'Plan actuel'
                 : plan.id === 'free'
-                ? 'Plan actuel'
+                ? 'Plan Gratuit'
                 : `Choisir ${plan.name}`}
             </Text>
           )}
@@ -296,51 +303,49 @@ export default function SubscriptionScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      {/* ---- En-tête ---- */}
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.headerTitle}>Abonnements</Text>
-        </View>
+        <Text style={styles.headerTitle}>Abonnements</Text>
         <Text style={styles.headerSubtitle}>
           Choisissez le plan qui vous convient
         </Text>
       </View>
 
-      {/* ---- Liste des plans ---- */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ---- Carte Abonnement Actuel (si abonné) ---- */}
-        {currentTier !== 'free' && subscription && (
+        {subscription && subscription.tier !== 'free' && (
           <View style={styles.activeSubscriptionCard}>
             <Text style={styles.activeSubscriptionTitle}>Votre abonnement actuel</Text>
             
             <View style={styles.activeSubscriptionRow}>
               <Text style={styles.activeSubscriptionPlanName}>
-                E-VADY {PLANS.find(p => p.id === currentTier)?.name || currentTier.toUpperCase()}
+                E-VADY {PLANS.find((p) => p.id === subscription.tier)?.name || subscription.tier.toUpperCase()}
               </Text>
+
               <View style={[
                 styles.statusBadge, 
-                { backgroundColor: subscription.cancel_at_period_end ? '#FFEBEB' : '#E8F5E9' }
+                { backgroundColor: (subscription.cancel_at_period_end || isExpired) ? '#FFEBEB' : '#E8F5E9' }
               ]}>
                 <Text style={[
                   styles.statusBadgeText, 
-                  { color: subscription.cancel_at_period_end ? '#D32F2F' : '#2E7D32' }
+                  { color: (subscription.cancel_at_period_end || isExpired) ? '#D32F2F' : '#2E7D32' }
                 ]}>
-                  {subscription.cancel_at_period_end ? 'Résilié' : 'Actif'}
+                  {isExpired ? 'Expiré' : subscription.cancel_at_period_end ? 'Résilié' : 'Actif'}
                 </Text>
               </View>
             </View>
 
             <Text style={styles.activeSubscriptionDetails}>
-              {subscription.cancel_at_period_end
+              {isExpired
+                ? "Votre abonnement est arrivé à échéance. Vous pouvez souscrire à une nouvelle offre ci-dessous."
+                : subscription.cancel_at_period_end
                 ? `Votre abonnement prendra fin le ${new Date(subscription.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}. Le renouvellement automatique est désactivé.`
                 : `Votre abonnement sera automatiquement renouvelé le ${new Date(subscription.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}.`
               }
             </Text>
 
-            {!subscription.cancel_at_period_end && (
+            {!subscription.cancel_at_period_end && !isExpired && (
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={handleCancelSubscription}
@@ -356,15 +361,11 @@ export default function SubscriptionScreen({ navigation }) {
           </View>
         )}
 
-        {(currentTier !== 'free'
-          ? PLANS.filter(plan => plan.id === currentTier)
-          : PLANS
-        ).map(renderPlanCard)}
+        {PLANS.map(renderPlanCard)}
 
-        {/* ---- Mentions légales ---- */}
         <Text style={styles.legalText}>
           Les abonnements payants sont renouvelés automatiquement chaque mois.
-          Vous pouvez annuler le renouvellement à tout moment via le bouton ci-dessus.
+          Vous pouvez annuler le renouvellement à tout moment depuis cet écran.
         </Text>
       </ScrollView>
     </View>

@@ -1,7 +1,7 @@
 /**
  * Écran Profil - Affichage et édition du profil utilisateur
  * Galerie photos (max 6), paramètres, déconnexion
- * Enrichi avec les informations personnelles (Taille, Profession, Croyances, Centres d'intérêt, Style de vie)
+ * Boutons Valider / Annuler personnalisés pour le choix des photos (Android & iOS)
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -67,6 +67,10 @@ const ProfileScreen = ({ route, navigation }) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [loadingAvatar, setLoadingAvatar] = useState(false);
 
+  // Nouvel état pour gérer la validation / confirmation manuelle de la photo sélectionnée (iOS & Android)
+  const [pendingPhoto, setPendingPhoto] = useState(null);
+  const [isAvatarUpload, setIsAvatarUpload] = useState(false);
+
   // Nouvelles informations personnelles
   const [profession, setProfession] = useState('');
   const [customProfession, setCustomProfession] = useState('');
@@ -78,7 +82,6 @@ const ProfileScreen = ({ route, navigation }) => {
 
   // Charger les données au montage
   useEffect(() => {
-    console.log('ProfileScreen useEffect:', { isOwnProfile, hasUser: !!userId, hasMyProfile: !!myProfile, targetUserId });
     if (isOwnProfile) {
       if (myProfile) {
         setProfile(myProfile);
@@ -102,14 +105,10 @@ const ProfileScreen = ({ route, navigation }) => {
         setSelectedLifestyles(myProfile.lifestyle || []);
       }
       if (userId) {
-        console.log('ProfileScreen: Appel fetchPhotos avec userId=', userId);
         fetchPhotos(userId, myProfile?.avatar_url);
         fetchSubscription(userId);
-      } else {
-        console.warn('ProfileScreen: userId non disponible, photos non chargées');
       }
     } else if (targetUserId) {
-      console.log('ProfileScreen: Appel fetchTargetProfile pour userId=', targetUserId);
       fetchTargetProfile();
     }
   }, [myProfile, user, targetUserId, isOwnProfile]);
@@ -149,7 +148,6 @@ const ProfileScreen = ({ route, navigation }) => {
       setSelectedBeliefs(profileData.beliefs || '');
       setSelectedLifestyles(profileData.lifestyle || []);
 
-      // Charger la souscription pour le profil visité
       try {
         const { data: subData, error: subError } = await supabase
           .from('subscriptions')
@@ -163,14 +161,11 @@ const ProfileScreen = ({ route, navigation }) => {
           setDisplayedSubscription({ tier: 'free' });
         }
       } catch (subErr) {
-        console.error('Erreur chargement abonnement tiers:', subErr);
         setDisplayedSubscription({ tier: 'free' });
       }
 
-      // Charger les photos en utilisant la même logique que fetchPhotos (DB puis Storage)
       await fetchPhotos(targetUserId, profileData?.avatar_url);
     } catch (error) {
-      console.error('Erreur chargement profil tiers:', error);
       Alert.alert('Erreur', 'Impossible de charger le profil.');
       setPhotos([]);
     } finally {
@@ -185,11 +180,9 @@ const ProfileScreen = ({ route, navigation }) => {
     setLoadingPhotos(true);
     const effectiveUid = uid || userId;
     if (!effectiveUid) {
-      console.warn('fetchPhotos: effectiveUid est undefined', { uid, userId: userId });
       setLoadingPhotos(false);
       return;
     }
-    console.log('fetchPhotos: Démarrage pour userId=', effectiveUid);
 
     const activeAvatar = currentAvatarUrl || profile?.avatar_url || myProfile?.avatar_url;
 
@@ -221,44 +214,31 @@ const ProfileScreen = ({ route, navigation }) => {
     };
 
     try {
-      // Essayer d'abord la table photos via la requête directe
       const { data, error } = await supabase
         .from('photos')
         .select('*')
         .eq('user_id', effectiveUid)
         .order('created_at', { ascending: false });
 
-      console.log('fetchPhotos: Résultat DB -', { error: error?.message, dataCount: data?.length || 0 });
-
-      // Si la requête DB renvoie des lignes, on les utilise.
       if (!error && data && data.length > 0) {
-        console.log('fetchPhotos: Photos trouvées en DB, count=', data.length);
         setPhotos(finalizePhotos(data));
         setLoadingPhotos(false);
         return;
       }
 
-      // Si la table est vide ou bloquée par RLS, utiliser le Storage comme fallback
-      console.warn('fetchPhotos: Table vide ou inaccessible, essai fallback Storage:', { error: error?.message });
-
       const { data: listData, error: listError } = await supabase.storage
         .from('photos')
         .list(effectiveUid, { limit: 100, offset: 0 });
 
-      console.log('fetchPhotos: Résultat Storage list -', { error: listError?.message, fileCount: listData?.length || 0 });
-
       if (listError) {
-        console.error('fetchPhotos: Erreur critique Storage list:', { error: listError?.message, status: listError?.status });
         setPhotos(finalizePhotos([]));
         setLoadingPhotos(false);
         return;
       }
 
       if (listData && listData.length > 0) {
-        console.log('fetchPhotos: Construction URLs pour', listData.length, 'fichiers');
-        // Construire les URLs publiques et les métadonnées
-        const items = listData.map((it, index) => ({
-          id: `${effectiveUid}-${it.name}`, // ID unique basé sur user + fileName
+        const items = listData.map((it) => ({
+          id: `${effectiveUid}-${it.name}`,
           user_id: effectiveUid,
           url: supabase.storage.from('photos').getPublicUrl(`${effectiveUid}/${it.name}`).data.publicUrl,
           is_profile: it.name.includes('profile_'),
@@ -266,17 +246,12 @@ const ProfileScreen = ({ route, navigation }) => {
           name: it.name,
         }));
 
-        // Trier les éléments du stockage par date décroissante (les plus récents en premier)
         items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-        console.log('fetchPhotos: Succès, photos chargées=', items.map(it => it.name));
         setPhotos(finalizePhotos(items));
       } else {
-        console.warn('fetchPhotos: Pas de fichiers trouvés en Storage');
         setPhotos(finalizePhotos([]));
       }
     } catch (error) {
-      console.error('fetchPhotos: Exception critique:', { message: error?.message, code: error?.code });
       setPhotos(finalizePhotos([]));
     } finally {
       setLoadingPhotos(false);
@@ -284,35 +259,46 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   /**
-   * Ajouter une photo (max 6)
+   * Ouvre la galerie et place l'image en attente de confirmation via le Modal Custom
    */
-  const handleAddPhoto = async () => {
-    if (photos.length >= 6) {
+  const handleSelectImage = async (forAvatar = false) => {
+    if (!forAvatar && photos.length >= 6) {
       Alert.alert('Limite atteinte', 'Maximum 6 photos autorisées sur votre profil');
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [3, 4],
+      allowsEditing: false, // Désactivé pour utiliser notre Modal custom Valider/Annuler
       quality: 0.8,
       base64: true,
     });
 
     if (result.canceled) return;
 
-    const isProfile = photos.length === 0;
+    // Placer l'image en attente pour affichage du modal de confirmation
+    setIsAvatarUpload(forAvatar);
+    setPendingPhoto(result.assets[0]);
+  };
+
+  /**
+   * Valider et téléverser la photo sélectionnée
+   */
+  const handleConfirmPhoto = async () => {
+    if (!pendingPhoto) return;
+
+    const isProfile = isAvatarUpload || photos.length === 0;
     if (isProfile) setLoadingAvatar(true);
 
+    const file = pendingPhoto;
+    setPendingPhoto(null); // Ferme le modal
+
     try {
-      const file = result.assets[0];
       let fileExt = 'jpg';
       let uploadBody;
       let contentType = 'image/jpeg';
 
       if (Platform.OS === 'web') {
-        // Web : récupérer le blob directement depuis l'URI
         const response = await fetch(file.uri);
         const blob = await response.blob();
         uploadBody = blob;
@@ -320,7 +306,6 @@ const ProfileScreen = ({ route, navigation }) => {
         const ext = contentType.split('/').pop();
         fileExt = ext === 'jpeg' ? 'jpg' : (ext || 'jpg');
       } else {
-        // Mobile : utiliser le base64 fourni par ImagePicker
         const uriParts = file.uri.split('.');
         fileExt = uriParts[uriParts.length - 1].toLowerCase().split('?')[0] || 'jpg';
         contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
@@ -333,14 +318,12 @@ const ProfileScreen = ({ route, navigation }) => {
           }
           uploadBody = new Uint8Array(byteNumbers);
         } else {
-          // Fallback : fetch blob si pas de base64
           const response = await fetch(file.uri);
           uploadBody = await response.blob();
           contentType = uploadBody.type || contentType;
         }
       }
 
-      // Ajouter le préfixe 'profile_' si c'est la première photo
       const fileName = isProfile
         ? `${userId}/profile_${Date.now()}.${fileExt}`
         : `${userId}/${Date.now()}.${fileExt}`;
@@ -354,123 +337,28 @@ const ProfileScreen = ({ route, navigation }) => {
       const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
 
       try {
-        // Essayer d'insérer dans la table DB
-        const { error: insertError } = await supabase
+        if (isProfile) {
+          await supabase
+            .from('photos')
+            .update({ is_profile: false })
+            .eq('user_id', userId);
+        }
+
+        await supabase
           .from('photos')
           .insert({ user_id: userId, url: urlData.publicUrl, is_profile: isProfile });
-
-        if (insertError) {
-          console.warn('Insert DB error (RLS may apply):', insertError?.message);
-          // Continuer même si RLS bloque, la photo est uploadée au storage
-        }
       } catch (dbError) {
-        console.warn('DB insert failed:', dbError?.message);
+        console.warn('DB insert/update error:', dbError?.message);
       }
 
       if (isProfile) {
         await updateProfile({ avatar_url: urlData.publicUrl });
-        setProfile(prev => prev ? { ...prev, avatar_url: urlData.publicUrl } : null);
+        setProfile((prev) => (prev ? { ...prev, avatar_url: urlData.publicUrl } : null));
       }
 
       await fetchPhotos(userId, useAuthStore.getState().profile?.avatar_url || urlData.publicUrl);
     } catch (error) {
-      console.error('Erreur handleAddPhoto:', error);
-      Alert.alert('Erreur upload', error.message || 'Impossible d\'ajouter la photo');
-    } finally {
-      setLoadingAvatar(false);
-    }
-  };
-
-  /**
-   * Modifier directement la photo de profil depuis le bouton de l'avatar principal
-   */
-  const handleUploadProfilePhoto = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-      base64: true,
-    });
-
-    if (result.canceled) return;
-
-    setLoadingAvatar(true);
-    try {
-      const file = result.assets[0];
-      let fileExt = 'jpg';
-      let uploadBody;
-      let contentType = 'image/jpeg';
-
-      if (Platform.OS === 'web') {
-        // Web : récupérer le blob directement depuis l'URI
-        const response = await fetch(file.uri);
-        const blob = await response.blob();
-        uploadBody = blob;
-        contentType = blob.type || 'image/jpeg';
-        const ext = contentType.split('/').pop();
-        fileExt = ext === 'jpeg' ? 'jpg' : (ext || 'jpg');
-      } else {
-        // Mobile : utiliser le base64 fourni par ImagePicker
-        const uriParts = file.uri.split('.');
-        fileExt = uriParts[uriParts.length - 1].toLowerCase().split('?')[0] || 'jpg';
-        contentType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
-
-        if (file.base64) {
-          const byteCharacters = atob(file.base64);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          uploadBody = new Uint8Array(byteNumbers);
-        } else {
-          // Fallback : fetch blob si pas de base64
-          const response = await fetch(file.uri);
-          uploadBody = await response.blob();
-          contentType = uploadBody.type || contentType;
-        }
-      }
-
-      const fileName = `${userId}/profile_${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('photos')
-        .upload(fileName, uploadBody, { contentType, upsert: false });
-
-      if (uploadError) throw new Error(`Upload Storage: ${uploadError.message}`);
-
-      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
-
-      try {
-        // Désactiver toutes les autres photos de profil
-        const { error: updateError } = await supabase
-          .from('photos')
-          .update({ is_profile: false })
-          .eq('user_id', userId);
-
-        if (updateError) {
-          console.warn('Update DB error:', updateError?.message);
-        }
-
-        const { error: insertError } = await supabase
-          .from('photos')
-          .insert({ user_id: userId, url: urlData.publicUrl, is_profile: true });
-
-        if (insertError) {
-          console.warn('Insert DB error:', insertError?.message);
-        }
-      } catch (dbError) {
-        console.error('DB operation error (RLS may apply):', dbError);
-        // Continuer même si RLS bloque, l'avatar sera mis à jour
-      }
-
-      // Mettre à jour l'avatar quoiqu'il arrive (même si RLS a bloqué l'insert)
-      await updateProfile({ avatar_url: urlData.publicUrl });
-      setProfile(prev => prev ? { ...prev, avatar_url: urlData.publicUrl } : null);
-      await fetchPhotos(userId, urlData.publicUrl);
-    } catch (error) {
-      console.error('Erreur handleUploadProfilePhoto:', error);
-      Alert.alert('Erreur upload', error.message || 'Impossible de modifier la photo de profil');
+      Alert.alert('Erreur upload', error.message || "Impossible d'ajouter la photo");
     } finally {
       setLoadingAvatar(false);
     }
@@ -497,11 +385,9 @@ const ProfileScreen = ({ route, navigation }) => {
             }
 
             try {
-              // Vérifier si c'est une photo de la table DB ou du storage
-              const isStoragePhoto = photoToDelete?.name; // Les photos du storage ont une propriété 'name'
+              const isStoragePhoto = photoToDelete?.name;
 
               if (isStoragePhoto) {
-                // Supprimer du storage (utiliser user_id de la photo si disponible)
                 const ownerId = photoToDelete.user_id || userId;
                 if (ownerId) {
                   const filePath = `${ownerId}/${photoToDelete.name}`;
@@ -512,7 +398,6 @@ const ProfileScreen = ({ route, navigation }) => {
                   }
                 }
               } else {
-                // Supprimer de la table DB
                 if (!userId) throw new Error('Utilisateur non authentifié');
                 await supabase.from('photos').delete().eq('id', photoId);
               }
@@ -522,27 +407,23 @@ const ProfileScreen = ({ route, navigation }) => {
                 const nextProfilePhoto = remainingPhotos[0];
 
                 if (nextProfilePhoto) {
-                  // Si on a une photo restante, la mettre comme profil
                   if (!nextProfilePhoto.name) {
-                    // Photo de la table DB
                     await supabase
                       .from('photos')
                       .update({ is_profile: true })
                       .eq('id', nextProfilePhoto.id);
                   }
                   await updateProfile({ avatar_url: nextProfilePhoto.url });
-                  setProfile(prev => prev ? { ...prev, avatar_url: nextProfilePhoto.url } : null);
+                  setProfile((prev) => (prev ? { ...prev, avatar_url: nextProfilePhoto.url } : null));
                 } else {
-                  // Aucune photo restante
                   await updateProfile({ avatar_url: null });
-                  setProfile(prev => prev ? { ...prev, avatar_url: null } : null);
+                  setProfile((prev) => (prev ? { ...prev, avatar_url: null } : null));
                 }
               }
 
               setSelectedPhoto(null);
               await fetchPhotos(userId, useAuthStore.getState().profile?.avatar_url);
             } catch (error) {
-              console.error('Erreur suppression photo:', error);
               Alert.alert('Erreur', 'Impossible de supprimer la photo');
             } finally {
               setLoadingAvatar(false);
@@ -553,7 +434,6 @@ const ProfileScreen = ({ route, navigation }) => {
     );
   };
 
-  // Gestion des Tags en mode édition
   const toggleInterest = (interest) => {
     setSelectedInterests((prev) =>
       prev.includes(interest) ? prev.filter((i) => i !== interest) : [...prev, interest]
@@ -566,9 +446,6 @@ const ProfileScreen = ({ route, navigation }) => {
     );
   };
 
-  /**
-   * Sauvegarder les modifications du profil
-   */
   const handleSave = async () => {
     if (!fullName.trim()) {
       Alert.alert('Erreur', 'Le nom est obligatoire');
@@ -595,9 +472,6 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   };
 
-  /**
-   * Déconnexion
-   */
   const handleLogout = () => {
     Alert.alert(
       'Déconnexion',
@@ -635,18 +509,13 @@ const ProfileScreen = ({ route, navigation }) => {
       {/* En-tête profil */}
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          {/* <Image
-            source={require('../../assets/logo.png')}
-            style={{ width: 30, height: 30, marginRight: 8 }}
-            resizeMode="contain"
-          /> */}
           {!isOwnProfile && (
             <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
               <Ionicons name="arrow-back" size={24} color={COLORS.black} />
             </TouchableOpacity>
           )}
           <Text style={[styles.headerTitle, !isOwnProfile && { flex: 1 }]}>
-            {isOwnProfile ? 'Mon Profil' : (profile?.full_name || 'Profil')}
+            {isOwnProfile ? 'Mon Profil' : profile?.full_name || 'Profil'}
           </Text>
         </View>
         {isOwnProfile && (
@@ -680,7 +549,7 @@ const ProfileScreen = ({ route, navigation }) => {
           {isOwnProfile && (
             <TouchableOpacity
               style={styles.editAvatarButton}
-              onPress={handleUploadProfilePhoto}
+              onPress={() => handleSelectImage(true)}
               disabled={loadingAvatar}
             >
               <Ionicons name="camera" size={20} color={COLORS.white} />
@@ -729,7 +598,7 @@ const ProfileScreen = ({ route, navigation }) => {
             multiline
             icon="text-outline"
           />
-          {/* Sélection de Profession */}
+
           <Text style={styles.label}>Profession / Études</Text>
           <View style={styles.chipsContainer}>
             {PROFESSION_OPTIONS.map((p) => {
@@ -759,7 +628,6 @@ const ProfileScreen = ({ route, navigation }) => {
             />
           )}
 
-          {/* Curseur de Taille */}
           <View style={{ marginVertical: 16 }}>
             <Text style={styles.label}>Taille : {height} cm</Text>
             <Slider
@@ -775,7 +643,6 @@ const ProfileScreen = ({ route, navigation }) => {
             />
           </View>
 
-          {/* Séléctions de Tags en mode Édition */}
           <Text style={styles.label}>Centres d'intérêt</Text>
           <View style={styles.chipsContainer}>
             {INTEREST_OPTIONS.map((interest) => {
@@ -845,7 +712,6 @@ const ProfileScreen = ({ route, navigation }) => {
       {/* Mode Visualisation */}
       {!editing && (
         <View>
-          {/* Bio */}
           {profile?.bio ? (
             <View style={styles.bioSection}>
               <Text style={styles.sectionTitle}>À propos</Text>
@@ -853,8 +719,11 @@ const ProfileScreen = ({ route, navigation }) => {
             </View>
           ) : null}
 
-          {/* Caractéristiques Personnelles */}
-          {(profile?.profession || profile?.height || profile?.beliefs || (profile?.interests && profile?.interests.length > 0) || (profile?.lifestyle && profile?.lifestyle.length > 0)) ? (
+          {(profile?.profession ||
+            profile?.height ||
+            profile?.beliefs ||
+            (profile?.interests && profile?.interests.length > 0) ||
+            (profile?.lifestyle && profile?.lifestyle.length > 0)) && (
             <View style={styles.detailsSection}>
               <Text style={styles.sectionTitle}>Informations personnelles</Text>
 
@@ -907,7 +776,7 @@ const ProfileScreen = ({ route, navigation }) => {
                 </View>
               ) : null}
             </View>
-          ) : null}
+          )}
         </View>
       )}
 
@@ -935,7 +804,7 @@ const ProfileScreen = ({ route, navigation }) => {
               ))}
 
               {isOwnProfile && photos.length < 6 && (
-                <TouchableOpacity style={styles.addPhotoBtn} onPress={handleAddPhoto}>
+                <TouchableOpacity style={styles.addPhotoBtn} onPress={() => handleSelectImage(false)}>
                   <Ionicons name="add" size={32} color={COLORS.primary} />
                   <Text style={styles.addPhotoText}>Ajouter</Text>
                 </TouchableOpacity>
@@ -944,9 +813,53 @@ const ProfileScreen = ({ route, navigation }) => {
           )}
         </View>
         <Text style={styles.photoHint}>
-          {isOwnProfile ? "Appuyez sur une photo pour l'agrandir ou la supprimer" : "Appuyez sur une photo pour l'agrandir"}
+          {isOwnProfile
+            ? "Appuyez sur une photo pour l'agrandir ou la supprimer"
+            : "Appuyez sur une photo pour l'agrandir"}
         </Text>
       </View>
+
+      {/* MODAL CUSTOM : Confirmation / Validation de la photo (iOS & Android) */}
+      <Modal
+        visible={pendingPhoto !== null}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setPendingPhoto(null)}
+      >
+        <View style={styles.confirmModalContainer}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>
+              {isAvatarUpload ? 'Définir comme photo de profil' : 'Aperçu de la photo'}
+            </Text>
+
+            {pendingPhoto && (
+              <Image
+                source={{ uri: pendingPhoto.uri }}
+                style={styles.confirmImagePreview}
+                resizeMode="cover"
+              />
+            )}
+
+            <View style={styles.confirmButtonsRow}>
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.cancelBtn]}
+                onPress={() => setPendingPhoto(null)}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={COLORS.darkGray} />
+                <Text style={styles.cancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.validateBtn]}
+                onPress={handleConfirmPhoto}
+              >
+                <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.white} />
+                <Text style={styles.validateBtnText}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal de visualisation de photo en plein écran */}
       <Modal
@@ -1011,7 +924,11 @@ const ProfileScreen = ({ route, navigation }) => {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={[styles.actionRow, saving && styles.logoutButtonDisabled]} onPress={handleLogout} disabled={saving}>
+          <TouchableOpacity
+            style={[styles.actionRow, saving && styles.logoutButtonDisabled]}
+            onPress={handleLogout}
+            disabled={saving}
+          >
             <View style={styles.actionLeft}>
               <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
               <Text style={[styles.actionText, styles.logoutText]}>Déconnexion</Text>
@@ -1288,6 +1205,73 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: 'italic',
   },
+
+  /* --- Styles du Modal de Confirmation Custom (Valider / Annuler) --- */
+  confirmModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  confirmCard: {
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.black,
+    marginBottom: 16,
+  },
+  confirmImagePreview: {
+    width: '100%',
+    height: 300,
+    borderRadius: 14,
+    marginBottom: 20,
+    backgroundColor: COLORS.lightGray,
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 12,
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cancelBtn: {
+    backgroundColor: '#F3F4F6',
+  },
+  cancelBtnText: {
+    color: COLORS.darkGray,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  validateBtn: {
+    backgroundColor: COLORS.primary,
+  },
+  validateBtnText: {
+    color: COLORS.white,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+
+  /* --- Modal Plein Écran --- */
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.95)',

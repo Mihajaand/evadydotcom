@@ -45,9 +45,10 @@ const AdminDashboardScreen = ({ navigation }) => {
   const [refreshing,        setRefreshing]        = useState(false);
   const [dbError,           setDbError]           = useState(null);
 
-  const [searchQuery,  setSearchQuery]  = useState('');
-  const [genderFilter, setGenderFilter] = useState('ALL');
-  const [tierFilter,   setTierFilter]   = useState('ALL');
+  const [searchQuery,   setSearchQuery]   = useState('');
+  const [genderFilter,  setGenderFilter]  = useState('ALL');
+  const [tierFilter,    setTierFilter]    = useState('ALL');
+  const [reportedOnly,  setReportedOnly]  = useState(false); // Filtre pour voir uniquement les profils signalés
 
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [selectedReports,    setSelectedReports]    = useState([]);
@@ -74,7 +75,7 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   useEffect(() => {
     applyFilters();
-  }, [profiles, searchQuery, genderFilter, tierFilter]);
+  }, [profiles, searchQuery, genderFilter, tierFilter, reportedOnly]);
 
   const handleSearchQueryChange = (value) => {
     const normalized = value.toLowerCase().replace(/[^a-z]/g, '');
@@ -91,7 +92,6 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   // ── Temps réel ─────────────────────────────────────────────────────────────
   const setupRealtime = () => {
-    // Use a unique channel name to avoid adding callbacks to an already-subscribed channel
     const channelName = `admin-realtime-${Date.now()}`;
     const channel = supabase
       .channel(channelName)
@@ -100,7 +100,6 @@ const AdminDashboardScreen = ({ navigation }) => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => loadAllData(true))
       .subscribe();
 
-    // Remove any previous channel reference and store the new one
     if (realtimeRef.current) supabase.removeChannel(realtimeRef.current);
     realtimeRef.current = channel;
   };
@@ -120,16 +119,20 @@ const AdminDashboardScreen = ({ navigation }) => {
         return;
       }
 
-      const { data: subsData    } = await supabase.from('subscriptions').select('user_id, tier');
-      const { data: reportsData } = await supabase.from('reports').select('*').order('created_at', { ascending: false });
+      const { data: subsData } = await supabase.from('subscriptions').select('user_id, tier');
+      // Sélection complète des signalements : reporter_id, reported_id, reason, created_at
+      const { data: reportsData } = await supabase
+        .from('reports')
+        .select('id, reporter_id, reported_id, reason, created_at')
+        .order('created_at', { ascending: false });
 
-      const subsMap         = {};
-      const reportsCountMap = {};
-      const reportsDetailMap= {};
+      const subsMap          = {};
+      const reportsCountMap  = {};
+      const reportsDetailMap = {};
 
       (subsData || []).forEach((s) => { subsMap[s.user_id] = s.tier || 'free'; });
       (reportsData || []).forEach((r) => {
-        reportsCountMap[r.reported_id]  = (reportsCountMap[r.reported_id]  || 0) + 1;
+        reportsCountMap[r.reported_id] = (reportsCountMap[r.reported_id] || 0) + 1;
         if (!reportsDetailMap[r.reported_id]) reportsDetailMap[r.reported_id] = [];
         reportsDetailMap[r.reported_id].push(r);
       });
@@ -186,6 +189,12 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   const applyFilters = () => {
     let result = [...profiles];
+
+    // Filtre profils signalés
+    if (reportedOnly) {
+      result = result.filter((p) => p.reportCount > 0);
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       result = result.filter((p) => (p.full_name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q) || (p.bio || '').toLowerCase().includes(q));
@@ -272,20 +281,34 @@ const AdminDashboardScreen = ({ navigation }) => {
   };
 
   // ── Composants ─────────────────────────────────────────────────────────────
-  const StatBox = ({ value, label, color }) => (
-    <View style={styles.statBox}>
+  const StatBox = ({ value, label, color, onPress }) => (
+    <TouchableOpacity 
+      style={styles.statBox} 
+      onPress={onPress} 
+      disabled={!onPress}
+      activeOpacity={0.7}
+    >
       <Text style={[styles.statValue, color && { color }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </TouchableOpacity>
   );
 
-  const FilterBadge = ({ label, active, onPress }) => (
+  const FilterBadge = ({ label, active, onPress, danger }) => (
     <TouchableOpacity
-      style={[styles.filterBadge, active && styles.filterBadgeActive]}
+      style={[
+        styles.filterBadge, 
+        active && styles.filterBadgeActive,
+        danger && active && styles.filterBadgeDangerActive,
+      ]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={[styles.filterBadgeText, active && styles.filterBadgeTextActive]}>
+      <Text style={[
+        styles.filterBadgeText, 
+        active && styles.filterBadgeTextActive,
+        danger && { color: COLORS.danger },
+        danger && active && { color: COLORS.white }
+      ]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -344,9 +367,9 @@ const AdminDashboardScreen = ({ navigation }) => {
             disabled={profile.reportCount === 0}
           >
             <Ionicons name={profile.reportCount > 0 ? 'flag' : 'flag-outline'} size={13} color={profile.reportCount > 0 ? '#EF4444' : COLORS.gray} />
-            <Text style={[styles.reportInfoText, profile.reportCount > 0 && { color: '#EF4444' }]}>
+            <Text style={[styles.reportInfoText, profile.reportCount > 0 && { color: '#EF4444', fontWeight: '700' }]}>
               {profile.reportCount} signalement{profile.reportCount !== 1 ? 's' : ''}
-              {profile.reportCount > 0 ? ' ›' : ''}
+              {profile.reportCount > 0 ? ' (Voir)' : ''}
             </Text>
           </TouchableOpacity>
 
@@ -434,10 +457,15 @@ const AdminDashboardScreen = ({ navigation }) => {
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <StatBox value={stats.totalProfiles} label="Profils"      />
+          <StatBox value={stats.totalProfiles} label="Profils" onPress={() => setReportedOnly(false)} />
           <StatBox value={stats.totalActive}   label="Actifs"       color="#22C55E" />
           <StatBox value={stats.totalInactive} label="Inactifs"     color={COLORS.danger} />
-          <StatBox value={stats.totalReports}  label="Signalements" color="#FF9500" />
+          <StatBox 
+            value={stats.totalReports}  
+            label="Signalements" 
+            color="#FF9500" 
+            onPress={() => setReportedOnly(!reportedOnly)} 
+          />
         </View>
       </View>
 
@@ -463,6 +491,13 @@ const AdminDashboardScreen = ({ navigation }) => {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.filterRow}>
+            <FilterBadge 
+              label="⚠️ Signalés uniquement" 
+              active={reportedOnly} 
+              danger 
+              onPress={() => setReportedOnly(!reportedOnly)} 
+            />
+            <View style={styles.filterSep} />
             <FilterBadge label="Tous"     active={genderFilter === 'ALL'}    onPress={() => setGenderFilter('ALL')}    />
             <FilterBadge label="👨 Homme" active={genderFilter === 'MALE'}   onPress={() => setGenderFilter('MALE')}   />
             <FilterBadge label="👩 Femme" active={genderFilter === 'FEMALE'} onPress={() => setGenderFilter('FEMALE')} />
@@ -477,7 +512,7 @@ const AdminDashboardScreen = ({ navigation }) => {
 
         <Text style={styles.resultCount}>
           {filteredProfiles.length} profil{filteredProfiles.length !== 1 ? 's' : ''}
-          {searchQuery || genderFilter !== 'ALL' || tierFilter !== 'ALL' ? ' filtré(s)' : ' au total'}
+          {searchQuery || genderFilter !== 'ALL' || tierFilter !== 'ALL' || reportedOnly ? ' filtré(s)' : ' au total'}
         </Text>
       </View>
 
@@ -522,12 +557,14 @@ const AdminDashboardScreen = ({ navigation }) => {
               {selectedReports.map((r, idx) => (
                 <View key={r.id || idx} style={styles.reportItem}>
                   <View style={styles.reportItemHeader}>
-                    <Ionicons name="flag" size={13} color={COLORS.danger} />
+                    <Ionicons name="flag" size={15} color={COLORS.danger} />
                     <Text style={styles.reportReason}>{r.reason || 'Raison non spécifiée'}</Text>
                   </View>
                   <Text style={styles.reportMeta}>
-                    {r.created_at ? new Date(r.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                    {' · Par : '}{r.reporter_id ? r.reporter_id.substring(0, 8) + '…' : '—'}
+                    📅 Date : {r.created_at ? new Date(r.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </Text>
+                  <Text style={styles.reportMeta}>
+                    👤 Signalé par ID : {r.reporter_id || 'Inconnu'}
                   </Text>
                 </View>
               ))}
@@ -618,10 +655,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lightGray,
     borderWidth: 1, borderColor: '#EBEBEB',
   },
-  filterBadgeActive:     { backgroundColor: 'rgba(241,62,147,0.1)', borderColor: COLORS.primary },
-  filterBadgeText:       { fontSize: 12, fontWeight: '600', color: COLORS.gray },
-  filterBadgeTextActive: { color: COLORS.primary, fontWeight: '700' },
-  resultCount:           { fontSize: 11, color: COLORS.gray, marginTop: 6 },
+  filterBadgeActive:       { backgroundColor: 'rgba(241,62,147,0.1)', borderColor: COLORS.primary },
+  filterBadgeDangerActive: { backgroundColor: COLORS.danger, borderColor: COLORS.danger },
+  filterBadgeText:         { fontSize: 12, fontWeight: '600', color: COLORS.gray },
+  filterBadgeTextActive:   { color: COLORS.primary, fontWeight: '700' },
+  resultCount:             { fontSize: 11, color: COLORS.gray, marginTop: 6 },
 
   // ── Liste ──────────────────────────────────────────────────────────────────
   listContainer: { flex: 1 },
@@ -690,7 +728,7 @@ const styles = StyleSheet.create({
   },
   reportItemHeader: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   reportReason:     { fontSize: 13, fontWeight: '700', color: COLORS.black, flex: 1 },
-  reportMeta:       { fontSize: 11, color: COLORS.gray },
+  reportMeta:       { fontSize: 11, color: COLORS.gray, marginTop: 2 },
 });
 
 export default AdminDashboardScreen;

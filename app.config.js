@@ -1,4 +1,3 @@
-// app.config.js
 const fs = require('fs');
 const path = require('path');
 
@@ -18,9 +17,21 @@ try {
 module.exports = {
   ...baseConfig,
   ...localConfig,
+  plugins: [
+    ...(baseConfig.plugins || []),
+    ...(localConfig.plugins || []),
+    "@react-native-community/datetimepicker" // <-- RAJOUTÉ ICI
+  ],
+  android: {
+    ...(baseConfig.android || {}),
+    ...(localConfig.android || {}),
+    package: "com.mihajamahefa.evady"
+  },
   extra: {
     ...baseConfig.extra,
     ...(localConfig.extra || {}),
+    eas: {
+      projectId: "88e4fc74-f8f2-4ad3-b20c-7a634976fed1"
+    }
   },
 };
-
