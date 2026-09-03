@@ -455,66 +455,84 @@ const SignupScreen = ({ navigation }) => {
             </View>
 
             <Text style={styles.label}>Date de naissance</Text>
-            {Platform.OS === 'web' ? (
-              <input
-                type="date"
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: COLORS.lightGray,
-                  borderRadius: 12,
-                  padding: 14,
-                  marginBottom: 16,
-                  border: 'none',
-                  fontSize: 16,
-                  fontFamily: 'inherit',
-                  color: birthdate ? COLORS.black : COLORS.gray,
-                  width: '100%',
-                  boxSizing: 'border-box',
-                }}
-                max={new Date(new Date().getFullYear() - 18, 11, 31).toISOString().split('T')[0]}
-                value={birthdate ? birthdate.toISOString().split('T')[0] : ''}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setBirthdate(new Date(e.target.value));
-                  } else {
-                    setBirthdate(null);
-                  }
-                }}
-              />
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.datePicker}
-                  onPress={() => setShowDatePicker(true)}
-                >
-                  <Ionicons name="calendar-outline" size={20} color={COLORS.gray} />
-                  <Text style={[styles.dateText, !birthdate && styles.placeholder]}>
-                    {birthdate ? formatDate(birthdate) : 'Sélectionner une date'}
-                  </Text>
-                </TouchableOpacity>
+{Platform.OS === 'web' ? (
+  <input
+    type="date"
+    style={{
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: COLORS.lightGray,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 16,
+      border: 'none',
+      fontSize: 16,
+      fontFamily: 'inherit',
+      color: birthdate ? COLORS.black : COLORS.gray,
+      width: '100%',
+      boxSizing: 'border-box',
+    }}
+    max={new Date(new Date().getFullYear() - 18, 11, 31).toISOString().split('T')[0]}
+    value={birthdate ? birthdate.toISOString().split('T')[0] : ''}
+    onChange={(e) => {
+      if (e.target.value) {
+        setBirthdate(new Date(e.target.value));
+      } else {
+        setBirthdate(null);
+      }
+    }}
+  />
+) : (
+  <>
+    <TouchableOpacity
+      style={styles.datePicker}
+      onPress={() => setShowDatePicker(true)}
+    >
+      <Ionicons name="calendar-outline" size={20} color={COLORS.gray} />
+      <Text style={[styles.dateText, !birthdate && styles.placeholder]}>
+        {birthdate ? formatDate(birthdate) : 'Sélectionner une date'}
+      </Text>
+    </TouchableOpacity>
 
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={birthdate || new Date(new Date().getFullYear() - 18, 0, 1)}
-                    mode="date"
-                    maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
-                    minimumDate={new Date(1900, 0, 1)}
-                    locale="fr"
-                    onValueChange={(event, date) => {
-                      const selectedDate = date || (event instanceof Date ? event : (event?.nativeEvent?.timestamp ? new Date(event.nativeEvent.timestamp) : null));
-                      if (selectedDate) {
-                        setBirthdate(selectedDate instanceof Date ? selectedDate : new Date(selectedDate));
-                      }
-                      if (Platform.OS === 'android') {
-                        setShowDatePicker(false);
-                      }
-                    }}
-                    onDismiss={() => setShowDatePicker(false)}
-                  />
-                )}
-              </>
-            )}
+    {showDatePicker && (
+      <View>
+        <DateTimePicker
+          value={birthdate || new Date(new Date().getFullYear() - 18, 0, 1)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          maximumDate={new Date(new Date().getFullYear() - 18, 0, 1)}
+          minimumDate={new Date(1900, 0, 1)}
+          locale="fr-FR"
+          onChange={(event, selectedDate) => {
+            if (Platform.OS === 'android') {
+              setShowDatePicker(false);
+              if (event.type === 'set' && selectedDate) {
+                setBirthdate(selectedDate);
+              }
+            } else if (selectedDate) {
+              setBirthdate(selectedDate);
+            }
+          }}
+        />
+        
+        {/* Bouton de confirmation requis pour iOS */}
+        {Platform.OS === 'ios' && (
+          <TouchableOpacity
+            style={styles.iosConfirmBtn}
+            onPress={() => {
+              if (!birthdate) {
+                setBirthdate(new Date(new Date().getFullYear() - 18, 0, 1));
+              }
+              setShowDatePicker(false);
+            }}
+          >
+            <Text style={styles.iosConfirmText}>Confirmer la date</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    )}
+  </>
+)}
 
             <View style={styles.locationInfo}>
               <Ionicons
@@ -990,6 +1008,19 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: COLORS.white,
     fontWeight: '700',
+  },
+  iosConfirmBtn: {
+    backgroundColor: COLORS.primary,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  iosConfirmText: {
+    color: COLORS.white,
+    fontWeight: '700',
+    fontSize: 14,
   },
 });
 
