@@ -9,16 +9,32 @@ import {
 } from 'react-leaflet';
 import L from 'leaflet';
 
-// ── CSS Leaflet (injection dynamique, une seule fois) ──────────────────────
+// ── Injection CSS Leaflet + Masquage du watermark et du drapeau ──
 if (typeof document !== 'undefined' && !document.getElementById('leaflet-css')) {
   const link = document.createElement('link');
   link.id = 'leaflet-css';
   link.rel = 'stylesheet';
   link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
   document.head.appendChild(link);
+
+  // Style personnalisé pour masquer totalement le watermark/drapeau Leaflet
+  const style = document.createElement('style');
+  style.id = 'leaflet-custom-hide-attribution';
+  style.innerHTML = `
+    .leaflet-control-attribution, 
+    .leaflet-control-attribution * { 
+      display: none !important; 
+      visibility: hidden !important; 
+      opacity: 0 !important; 
+      height: 0 !important; 
+      width: 0 !important; 
+      pointer-events: none !important; 
+    }
+  `;
+  document.head.appendChild(style);
 }
 
-// Corrige le chemin des icônes Leaflet par défaut (problème connu avec webpack/metro)
+// Correction des icônes Leaflet par défaut sur Web
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -26,11 +42,11 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// Convertit latitudeDelta en niveau de zoom Leaflet
+// Conversion latitudeDelta vers niveau de zoom Leaflet
 const latDeltaToZoom = (latDelta) =>
   Math.min(18, Math.max(1, Math.round(Math.log2(180 / (latDelta || 0.1)))));
 
-// ── Contrôleur interne : expose animateToRegion via ref ────────────────────
+// ── Contrôleur interne : expose animateToRegion ──
 const MapController = React.forwardRef((_props, ref) => {
   const map = useMap();
   useImperativeHandle(ref, () => ({
@@ -42,14 +58,13 @@ const MapController = React.forwardRef((_props, ref) => {
   return null;
 });
 
-// ── MapView ────────────────────────────────────────────────────────────────
+// ── MapView Web ────────────────────────────────────────────────────────────────
 const MapView = React.forwardRef(({ style, initialRegion, children }, ref) => {
   const center = initialRegion
     ? [initialRegion.latitude, initialRegion.longitude]
     : [0, 0];
   const zoom = initialRegion ? latDeltaToZoom(initialRegion.latitudeDelta) : 12;
 
-  // Normalise le style RN (objet ou tableau) en style HTML
   const flatStyle = Array.isArray(style)
     ? Object.assign({}, ...style)
     : style || {};
@@ -66,18 +81,19 @@ const MapView = React.forwardRef(({ style, initialRegion, children }, ref) => {
       zoom={zoom}
       style={containerStyle}
       scrollWheelZoom
+      attributionControl={false}
     >
       <MapController ref={ref} />
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution=""
       />
       {children}
     </MapContainer>
   );
 });
 
-// ── Callout → Popup Leaflet ────────────────────────────────────────────────
+// ── Callout Web → Popup Leaflet ──
 export const Callout = ({ children, onPress }) => (
   <Popup>
     <div
@@ -89,12 +105,11 @@ export const Callout = ({ children, onPress }) => (
   </Popup>
 );
 
-// ── Marker avec contenu visuel personnalisé via DivIcon + portail ──────────
+// ── Marker Web avec contenu personnalisé via DivIcon ──
 export const Marker = ({ coordinate, children }) => {
   const { latitude: lat, longitude: lng } = coordinate;
   const iconRef = useRef(null);
 
-  // Crée l'icône DivIcon avec un conteneur DOM une seule fois
   if (!iconRef.current && typeof document !== 'undefined') {
     const el = document.createElement('div');
     el.style.cssText = 'width:40px;height:40px;overflow:visible;';
@@ -109,7 +124,6 @@ export const Marker = ({ coordinate, children }) => {
     };
   }
 
-  // Sépare le contenu visuel du Callout
   const visualChildren = [];
   let calloutChild = null;
   React.Children.forEach(children, (child) => {

@@ -17,21 +17,23 @@ import {
   Dimensions,
   Animated,
   Alert,
-  PanResponder, // MODIFICATION : Ajout pour gérer le glissement tactile Tinder
-  Image, // MODIFICATION : Ajout pour les avatars sur la carte
-  ScrollView, // MODIFICATION : Ajout pour les barres de défilement de filtres
+  PanResponder,
+  ScrollView,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Marker, Callout } from 'react-native-maps'; // MODIFICATION : Intégration de la carte interactive
 import { COLORS } from '../utils/constants';
-import { haversineDistance, calculateAge, formatDistance, getCountryFromCoords, computeCompatibilityScore } from '../utils/helpers'; // MODIFICATION : Import des helpers d'âge et formatage
+import { haversineDistance, calculateAge, formatDistance, getCountryFromCoords, computeCompatibilityScore } from '../utils/helpers';
 import { supabase } from '../supabase/client';
 import useAuthStore from '../store/authStore';
 import ProfileCard from '../components/ProfileCard';
 import SkeletonCard from '../components/SkeletonCard';
-import useLocation from '../hooks/useLocation'; // MODIFICATION : Import du hook GPS
+import useLocation from '../hooks/useLocation';
 import useNotificationStore from '../store/notificationStore';
+// LeafletMap.native.js (iOS/Android) et LeafletMap.web.js (Web) sont résolus
+// automatiquement selon la plateforme — plus besoin de brancher sur Platform.OS
+// ni de mock react-native-maps. Les 3 plateformes utilisent le même moteur Leaflet.
+import LeafletMap from '../components/LeafletMap';
 
 const { width, height } = Dimensions.get('window');
 
@@ -41,16 +43,15 @@ const HomeScreen = ({ navigation }) => {
   const [profiles, setProfiles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState('card'); // MODIFICATION : 'card' (glissé Tinder) ou 'map' (carte géographique)
+  const [viewMode, setViewMode] = useState('card');
 
   // ÉTATS DE FILTRAGE : Distance et Pays
   const [selectedDistanceRange, setSelectedDistanceRange] = useState('all');
   const [selectedCountry, setSelectedCountry] = useState('all');
-  const [activeFilterType, setActiveFilterType] = useState('distance'); // 'distance' ou 'country'
+  const [activeFilterType, setActiveFilterType] = useState('distance');
 
   // Filtrage des profils selon la distance et le pays
   const filteredProfiles = profiles.filter((p) => {
-    // 1. Filtre par tranche de distance
     let matchesDistance = true;
     if (selectedDistanceRange !== 'all') {
       const dist = p.distance;
@@ -67,7 +68,6 @@ const HomeScreen = ({ navigation }) => {
       }
     }
 
-    // 2. Filtre par pays
     let matchesCountry = true;
     if (selectedCountry !== 'all') {
       matchesCountry = p.country === selectedCountry;
@@ -76,7 +76,6 @@ const HomeScreen = ({ navigation }) => {
     return matchesDistance && matchesCountry;
   });
 
-  // Clamping de currentIndex si la liste filtrée change de taille et devient plus petite
   useEffect(() => {
     if (filteredProfiles.length > 0 && currentIndex >= filteredProfiles.length) {
       setCurrentIndex(filteredProfiles.length - 1);
@@ -85,27 +84,19 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [filteredProfiles.length, currentIndex]);
 
-  // Réinitialiser l'index courant à 0 lorsque les filtres changent pour éviter les erreurs hors-limites
   useEffect(() => {
     setCurrentIndex(0);
   }, [selectedDistanceRange, selectedCountry]);
 
-
-  /**
-   * @name currentProfile
-   * @description Jdoc: Candidat de profil recommandé actif à l'index courant parmi les profils filtrés.
-   **/
   const currentProfile = filteredProfiles[currentIndex];
   const currentCompatibility = currentProfile ? computeCompatibilityScore(profile, currentProfile) : undefined;
 
-  // AJOUT : États et Refs pour la micro-animation des petits cœurs qui s'envolent
   const [flyingHearts, setFlyingHearts] = useState([]);
   const likeBtnScale = useRef(new Animated.Value(1)).current;
-  const floatingAnim = useRef(new Animated.Value(0)).current; // MODIFICATION : Animation de flottaison
-  const isTransitioning = useRef(false); // MODIFICATION : Blocage durant la transition pour éviter les sauts
-  const mapRef = useRef(null); // AJOUT : Ref de la carte géographique interactive
+  const floatingAnim = useRef(new Animated.Value(0)).current;
+  const isTransitioning = useRef(false);
+  const mapRef = useRef(null);
 
-  // MODIFICATION : Effet de flottaison continue et douce pour le bouton J'adore
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -123,11 +114,6 @@ const HomeScreen = ({ navigation }) => {
     ).start();
   }, [floatingAnim]);
 
-  /**
-   * @name spawnHearts
-   * @description Jdoc: Spawne plusieurs petits cœurs à des positions horizontales et échelles aléatoires,
-   * puis les anime en élévation et opacité progressive avant de les retirer du state.
-   **/
   const spawnHearts = () => {
     const newHearts = Array.from({ length: 6 }).map((_, index) => {
       const id = Date.now() + index + Math.random();
@@ -144,22 +130,19 @@ const HomeScreen = ({ navigation }) => {
       return {
         id,
         anim,
-        x: -40 + Math.random() * 80, // dispersion horizontale aléatoire
-        scale: 0.6 + Math.random() * 0.7, // taille aléatoire
+        x: -40 + Math.random() * 80,
+        scale: 0.6 + Math.random() * 0.7,
       };
     });
 
     setFlyingHearts((prev) => [...prev, ...newHearts]);
   };
 
-  // MODIFICATION : Récupération des coordonnées GPS en temps réel via le hook useLocation
   const { location: gpsLocation, errorMsg: locationError, loading: loadingLocation } = useLocation();
 
-  // Coordonnées utilisateur (GPS réel ou fallback profil, sinon Paris)
   const userLat = gpsLocation?.latitude || profile?.latitude || 48.8566;
   const userLng = gpsLocation?.longitude || profile?.longitude || 2.3522;
 
-  // MODIFICATION : Références pour les coordonnées afin de ne pas recréer fetchProfiles lors de variations GPS mineures
   const userLatRef = useRef(userLat);
   const userLngRef = useRef(userLng);
 
@@ -168,7 +151,6 @@ const HomeScreen = ({ navigation }) => {
     userLngRef.current = userLng;
   }, [userLat, userLng]);
 
-  // MODIFICATION : Coordonnées de déplacement XY pour le glissé tactile
   const pan = useRef(new Animated.ValueXY()).current;
   const handlePassSwipeRef = useRef();
   const handleLikeSwipeRef = useRef();
@@ -178,7 +160,6 @@ const HomeScreen = ({ navigation }) => {
     handleLikeSwipeRef.current = handleLikeSwipe;
   });
 
-  // MODIFICATION : Synchronise les coordonnées GPS réelles de l'utilisateur dans Supabase
   useEffect(() => {
     if (gpsLocation && user?.id) {
       supabase
@@ -194,10 +175,6 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [gpsLocation, user?.id]);
 
-  /**
-   * Récupère les profils du genre opposé
-   * RÈGLE CRITIQUE: Hommes voient UNIQUEMENT les femmes et vice versa
-   */
   const fetchProfiles = useCallback(async (isSilent = false) => {
     if (!profile || !user?.id) return;
 
@@ -205,17 +182,14 @@ const HomeScreen = ({ navigation }) => {
       setLoading(true);
     }
     try {
-      // Genre opposé
       const oppositeGender = profile.gender === 'MALE' ? 'FEMALE' : 'MALE';
 
-      // Récupérer les profils déjà likés pour les exclure définitivement
       const { data: likedData } = await supabase
         .from('likes')
         .select('liked_id')
         .eq('liker_id', user.id);
       const likedIds = (likedData || []).map((l) => l.liked_id);
 
-      // Récupérer les profils passés récemment (moins de 2 minutes) pour les exclure temporairement
       const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
       const { data: passedData } = await supabase
         .from('passes')
@@ -224,7 +198,6 @@ const HomeScreen = ({ navigation }) => {
         .gte('created_at', twoMinutesAgo);
       const passedIds = (passedData || []).map((p) => p.passed_id);
 
-      // Récupérer les profils du genre opposé (exclure ceux déjà likés et passés récemment)
       let query = supabase
         .from('profiles')
         .select('*')
@@ -240,7 +213,6 @@ const HomeScreen = ({ navigation }) => {
 
       if (error) throw error;
 
-      // Récupérer les abonnements de ces profils pour l'affichage du badge
       const profileIds = (data || []).map((p) => p.id);
       const subsMap = {};
       if (profileIds.length > 0) {
@@ -254,7 +226,6 @@ const HomeScreen = ({ navigation }) => {
         });
       }
 
-      // MODIFICATION : Calculer la distance et le pays relatifs à la position GPS réelle (via refs stables)
       const profilesWithDistance = (data || []).map((p) => {
         const distance = haversineDistance(
           userLatRef.current,
@@ -271,7 +242,6 @@ const HomeScreen = ({ navigation }) => {
         };
       });
 
-      // MODIFICATION : Mélange aléatoire (Fisher-Yates) pour changer l'ordre d'affichage des profils
       const shuffledProfiles = [...profilesWithDistance];
       for (let i = shuffledProfiles.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -296,22 +266,19 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [viewMode, fetchProfiles]);
 
-
-  // Rafraîchissement automatique des profils toutes les minutes si la liste est vide (pour réafficher les profils après le délai de 2 min / 10 min)
   useEffect(() => {
     let interval;
     const isListEmpty = filteredProfiles.length <= 0;
     if (isListEmpty && !loading) {
       interval = setInterval(() => {
-        fetchProfiles(true); // Requête silencieuse en arrière-plan
-      }, 60000); // Réessaye toutes les 60 secondes
+        fetchProfiles(true);
+      }, 60000);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [filteredProfiles.length, loading, fetchProfiles]);
 
-    // Centrage et zoom automatique de la carte géographique lors du filtrage ou chargement des profils
   useEffect(() => {
     if (viewMode !== 'map' || !mapRef.current) return;
 
@@ -321,7 +288,6 @@ const HomeScreen = ({ navigation }) => {
     let lngDelta = 0.04;
 
     if (activeFilterType === 'country' && selectedCountry !== 'all') {
-      // Coordonnées de centrage par pays/territoire
       if (selectedCountry === 'France') {
         targetLat = 46.2276;
         targetLng = 2.2137;
@@ -349,11 +315,9 @@ const HomeScreen = ({ navigation }) => {
         lngDelta = 0.3;
       }
     } else {
-      // Par distance : recentre sur la position de l'utilisateur
       targetLat = userLat;
       targetLng = userLng;
 
-      // Ajuster le niveau de zoom selon la tranche de distance sélectionnée pour un affichage optimal
       if (selectedDistanceRange === '0-400') {
         latDelta = 4.5;
         lngDelta = 4.5;
@@ -370,7 +334,6 @@ const HomeScreen = ({ navigation }) => {
         latDelta = 80.0;
         lngDelta = 80.0;
       } else {
-        // 'all' s'il n'y a pas d'autres profils : zoom par défaut
         latDelta = 0.08;
         lngDelta = 0.04;
       }
@@ -381,7 +344,7 @@ const HomeScreen = ({ navigation }) => {
       longitude: targetLng,
       latitudeDelta: latDelta,
       longitudeDelta: lngDelta,
-    }, 1000); // 1 seconde de transition fluide premium !
+    }, 1000);
   }, [
     selectedCountry,
     selectedDistanceRange,
@@ -392,14 +355,12 @@ const HomeScreen = ({ navigation }) => {
     filteredProfiles,
   ]);
 
-  // MODIFICATION : Interpollation de la rotation minimale style galerie photo
   const rotate = pan.x.interpolate({
     inputRange: [-width / 2, 0, width / 2],
     outputRange: ['-1deg', '0deg', '1deg'],
     extrapolate: 'clamp',
   });
 
-  // MODIFICATION : Interpolation de la carte du dessous pour une transition de rapprochement premium
   const underneathScale = pan.x.interpolate({
     inputRange: [-width / 2, 0, width / 2],
     outputRange: [1, 0.98, 1],
@@ -426,19 +387,6 @@ const HomeScreen = ({ navigation }) => {
     opacity: underneathOpacity,
   };
 
-  // MODIFICATION : Opacité progressive des badges PASS/SUIVANT lors du glissé
-  const nextOpacity = pan.x.interpolate({
-    inputRange: [0, 120],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
-
-  const passOpacity = pan.x.interpolate({
-    inputRange: [-120, 0],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-
   const animatedCardStyle = {
     transform: [
       { translateX: pan.x },
@@ -446,13 +394,11 @@ const HomeScreen = ({ navigation }) => {
     ],
   };
 
-  // MODIFICATION : Traitement de l'action de Like après swipe avec transition
   const handleLikeSwipe = async () => {
     const currentProfile = filteredProfiles[currentIndex];
     if (!currentProfile) return;
 
     isTransitioning.current = true;
-    // Transition fluide : on attend un court instant avant de réinitialiser la position et exclure le profil de l'état
     setTimeout(() => {
       pan.setValue({ x: 0, y: 0 });
       setProfiles((prev) => prev.filter((p) => p.id !== currentProfile.id));
@@ -460,7 +406,6 @@ const HomeScreen = ({ navigation }) => {
     }, 250);
 
     try {
-      // Enregistrer le like
       const { error: likeError } = await supabase.from('likes').insert({
         liker_id: user.id,
         liked_id: currentProfile.id,
@@ -469,7 +414,6 @@ const HomeScreen = ({ navigation }) => {
       if (likeError) {
         console.error('Erreur enregistrement like (Supabase RLS/DB):', likeError);
       } else {
-        // Supprimer les anciennes notifications de Like de cet expéditeur pour éviter les doublons
         await supabase
           .from('notifications')
           .delete()
@@ -477,7 +421,6 @@ const HomeScreen = ({ navigation }) => {
           .eq('notifier_id', user.id)
           .eq('type', 'like');
 
-        // Insérer la notification de Like
         await supabase.from('notifications').insert({
           user_id: currentProfile.id,
           notifier_id: user.id,
@@ -486,7 +429,6 @@ const HomeScreen = ({ navigation }) => {
         });
       }
 
-      // Vérifier le match mutuel
       const { data: mutualLike, error: mutualError } = await supabase
         .from('likes')
         .select('id')
@@ -499,7 +441,6 @@ const HomeScreen = ({ navigation }) => {
       }
 
       if (mutualLike) {
-        // Envoi automatique d'un message de bienvenue lors du match (expéditeur : user.id, destinataire : currentProfile.id)
         try {
           const { error: welcomeMsgError } = await supabase.from('messages').insert({
             sender_id: user.id,
@@ -521,12 +462,10 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  // MODIFICATION : Traitement de l'action de Pass après swipe avec transition
   const handlePassSwipe = async () => {
     const currentProfile = filteredProfiles[currentIndex];
     
     isTransitioning.current = true;
-    // Transition fluide : on attend un court instant avant de réinitialiser la position et exclure le profil de l'état
     setTimeout(() => {
       pan.setValue({ x: 0, y: 0 });
       if (currentProfile) {
@@ -548,10 +487,8 @@ const HomeScreen = ({ navigation }) => {
         console.error('Erreur enregistrement pass (catch):', error);
       }
     }
-
   };
 
-  // MODIFICATION : Déclencheurs d'animation pour les clics boutons du bas (avec useNativeDriver: true pour la fluidité)
   const triggerLike = () => {
     Animated.timing(pan, {
       toValue: { x: width + 100, y: 0 },
@@ -572,13 +509,7 @@ const HomeScreen = ({ navigation }) => {
     });
   };
 
-  /**
-   * @name handleLike
-   * @description Jdoc: Déclenche l'animation de squeeze-bounce du bouton flottant,
-   * lance l'envolée des petits cœurs, puis après un délai de 600ms, swipe la carte vers la droite pour liker.
-   **/
   const handleLike = () => {
-    // 1. Animation de rebond tactile sur le bouton (effet squeeze & scale bounce)
     Animated.sequence([
       Animated.timing(likeBtnScale, {
         toValue: 0.82,
@@ -597,31 +528,17 @@ const HomeScreen = ({ navigation }) => {
       }),
     ]).start();
 
-    // 2. Générer l'envolée de cœurs volants
     spawnHearts();
 
-    // 3. Déclencher le swipe physique de la carte vers la droite après 600ms de plaisir visuel
     setTimeout(() => {
       triggerLike();
     }, 600);
   };
 
-  const handlePass = () => {
-    triggerPass();
-  };
-
-  /**
-   * @name panResponder
-   * @description Jdoc : PanResponder gérant les gestes de glissement Tinder.
-   * Modifié de sorte que le glissement tactile (gauche ou droite) effectue UNIQUEMENT une action de PASS (Suivant),
-   * le bouton J'adore flottant étant la seule option pour liker et matcher.
-   **/
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // Intercepter UNIQUEMENT si le geste est principalement horizontal (swipe gauche/droite)
-        // Si le geste est vertical (l'utilisateur scrolle la page), on renvoie false pour laisser le ScrollView défiler !
         const isHorizontalGesture = Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
         return !isTransitioning.current && isHorizontalGesture && Math.abs(gestureState.dx) > 10;
       },
@@ -634,10 +551,8 @@ const HomeScreen = ({ navigation }) => {
       onPanResponderRelease: (e, gestureState) => {
         if (isTransitioning.current) return;
         
-        // Vitesse du glissé ou distance seuil
         const isSwiped = Math.abs(gestureState.dx) > 120 || Math.abs(gestureState.vx) > 0.5;
         if (isSwiped && gestureState.dx > 0) {
-          // Glissement vers la droite
           isTransitioning.current = true;
           Animated.timing(pan, {
             toValue: { x: width + 100, y: gestureState.dy },
@@ -647,7 +562,6 @@ const HomeScreen = ({ navigation }) => {
             handlePassSwipeRef.current?.();
           });
         } else if (isSwiped && gestureState.dx < 0) {
-          // Glissement vers la gauche
           isTransitioning.current = true;
           Animated.timing(pan, {
             toValue: { x: -width - 100, y: gestureState.dy },
@@ -657,7 +571,6 @@ const HomeScreen = ({ navigation }) => {
             handlePassSwipeRef.current?.();
           });
         } else {
-          // Retour au centre s'il n'y a pas assez de glissement (ressort plus doux)
           Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
             friction: 6,
@@ -669,21 +582,14 @@ const HomeScreen = ({ navigation }) => {
     })
   ).current;
 
-  // MODIFICATION : Action de sélection de profil depuis la carte (Callout)
   const handleMarkerPress = (p) => {
     const idx = profiles.findIndex((profile) => profile.id === p.id);
     if (idx !== -1) {
       setCurrentIndex(idx);
-      setViewMode('card'); // Repasse sur l'onglet découverte sur ce profil !
+      setViewMode('card');
     }
   };
 
-  /**
-   * @name mapRegion
-   * @description Jdoc: Coordonnées de centrage de la carte géographique.
-   * Si un profil recommandé (currentProfile) est actif, la carte cible directement sa position,
-   * sinon elle se focalise par défaut sur la position GPS de l'utilisateur.
-   **/
   const mapRegion = {
     latitude: currentProfile?.latitude || userLat,
     longitude: currentProfile?.longitude || userLng,
@@ -691,27 +597,16 @@ const HomeScreen = ({ navigation }) => {
     longitudeDelta: 0.04,
   };
 
-  /**
-   * @name isDataLoading
-   * @description Jdoc: État de chargement global combiné (GPS + profil utilisateur + profils candidats).
-   * Reste actif tant que l'une des trois étapes est en cours de récupération pour éviter les flashs d'interface.
-   **/
   const isDataLoading = loading || !profile || loadingLocation;
 
-  /**
-   * @name loadingOverlay
-   * @description Jdoc: Rendu de l'écran de chargement avec un Skeleton Card moderne et premium.
-   **/
   if (isDataLoading) {
     return (
       <View style={styles.container}>
-        {/* En-tête de chargement */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Découvrir</Text>
           <Text style={styles.headerCount}>...</Text>
         </View>
 
-        {/* Sélecteur de mode de vue factice */}
         <View style={styles.toggleContainer}>
           <View style={[styles.toggleBtn, styles.toggleActive, { backgroundColor: '#E0E0E0' }]}>
             <Text style={[styles.toggleText, { color: '#A0A0A0' }]}>Découverte</Text>
@@ -721,7 +616,6 @@ const HomeScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Carte squelette animée */}
         <View style={styles.cardContainer}>
           <SkeletonCard />
         </View>
@@ -749,14 +643,8 @@ const HomeScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* En-tête */}
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {/* <Image
-            source={require('../../assets/logo.png')}
-            style={{ width: 30, height: 30, marginRight: 8 }}
-            resizeMode="contain"
-          /> */}
           <View>
             <Text style={styles.headerTitle}>
               <Text style={{ color: COLORS.primary }}>E</Text>
@@ -783,7 +671,6 @@ const HomeScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* AJOUT : Sélecteur de mode de vue Découverte / Carte géographique */}
       <View style={styles.toggleContainer}>
         <TouchableOpacity
           style={[styles.toggleBtn, viewMode === 'card' && styles.toggleActive]}
@@ -804,10 +691,8 @@ const HomeScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* BARRES DE FILTRAGE DES PROFILS (visibles uniquement sur la Carte) */}
       {viewMode === 'map' && (
         <View style={styles.filtersContainer}>
-          {/* Commutateur de type de filtre : par Distance ou par Pays */}
           <TouchableOpacity
             style={styles.filterTypeSwitcher}
             onPress={() => {
@@ -918,7 +803,6 @@ const HomeScreen = ({ navigation }) => {
             </View>
           ) : (
             <View style={styles.cardContainer}>
-              {/* AJOUT : Carte du dessous (prochain profil en 3D deck) animée pour une transition premium */}
               {currentIndex + 1 < filteredProfiles.length && (
                 <Animated.View 
                   key={filteredProfiles[currentIndex + 1].id}
@@ -932,7 +816,6 @@ const HomeScreen = ({ navigation }) => {
                 </Animated.View>
               )}
 
-              {/* Carte principale (au dessus) avec gestionnaires PanResponder */}
               <Animated.View
                 key={currentProfile.id}
                 {...panResponder.panHandlers}
@@ -949,11 +832,6 @@ const HomeScreen = ({ navigation }) => {
                   />
                 </TouchableOpacity>
 
-                {/**
-                 * @name likeBtnContainer
-                 * @description Jdoc: Conteneur du bouton "J'adore" flottant et des petits cœurs volants
-                 * qui se déclenchent lors du clic avec des coordonnées d'envol aléatoires.
-                 **/}
                 <View style={styles.likeBtnContainer}>
                   {flyingHearts.map((heart) => {
                     const translateY = heart.anim.interpolate({
@@ -1005,7 +883,6 @@ const HomeScreen = ({ navigation }) => {
             </View>
           )}
 
-          {/* Section Qui Sommes-Nous */}
           <View style={styles.aboutUsContainer}>
             <View style={styles.aboutUsHeader}>
               <View style={styles.aboutUsIconContainer}>
@@ -1028,62 +905,30 @@ const HomeScreen = ({ navigation }) => {
           </View>
         </ScrollView>
       ) : (
-        /* AJOUT : Carte Google/Apple Maps interactive avec profils géolocalisés */
         <View style={styles.mapContainer}>
-          <MapView
+          <LeafletMap
             ref={mapRef}
-            style={styles.map}
             initialRegion={mapRegion}
-            showsUserLocation={false}
-            showsMyLocationButton={false}
-          >
-            {/* Repère personnalisé pour l'utilisateur actuel (Point bleu pulsant) */}
-            <Marker coordinate={{ latitude: userLat, longitude: userLng }}>
-              <View style={styles.myMarkerContainer}>
-                <View style={styles.myMarkerPulse} />
-                <View style={styles.myMarkerDot} />
-              </View>
-            </Marker>
-
-            {/* Repères pour les autres profils à proximité */}
-            {filteredProfiles.map((p) => {
-              if (!p.latitude || !p.longitude) return null;
-              const pAge = calculateAge(p.birth_date);
-              return (
-                <Marker
-                  key={p.id}
-                  coordinate={{ latitude: p.latitude, longitude: p.longitude }}
-                >
-                  <View style={styles.profileMarker}>
-                    <Image
-                      source={
-                        p.avatar_url
-                          ? { uri: p.avatar_url }
-                          : require('../../assets/default-avatar.png')
-                      }
-                      style={styles.markerAvatar}
-                    />
-                  </View>
-                  <Callout tooltip onPress={() => handleMarkerPress(p)}>
-                    <View style={styles.calloutContainer}>
-                      <Text style={styles.calloutName}>
-                        {p.full_name}{pAge ? `, ${pAge}` : ''}
-                      </Text>
-                      <Text style={styles.calloutDistance}>
-                        À {p.distance ? formatDistance(p.distance) : '?? km'}
-                      </Text>
-                      {p.bio ? (
-                        <Text style={styles.calloutBio} numberOfLines={2}>
-                          {p.bio}
-                        </Text>
-                      ) : null}
-                      <Text style={styles.calloutAction}>👆 Appuyer pour swiper</Text>
-                    </View>
-                  </Callout>
-                </Marker>
-              );
-            })}
-          </MapView>
+            primaryColor={COLORS.primary}
+            myLocation={{ latitude: userLat, longitude: userLng }}
+            markers={filteredProfiles
+              .filter((p) => p.latitude && p.longitude)
+              .map((p) => ({
+                id: p.id,
+                latitude: p.latitude,
+                longitude: p.longitude,
+                avatarUrl: p.avatar_url || null,
+                name: p.full_name,
+                age: calculateAge(p.birth_date),
+                distance: p.distance ? formatDistance(p.distance) : null,
+                bio: p.bio || '',
+              }))}
+            onMarkerPress={(markerId) => {
+              //const found = filteredProfiles.find((p) => p.id === markerId);
+              //if (found) handleMarkerPress(found);
+              navigation.navigate('UserProfile', { userId: markerId });
+            }}
+          />
         </View>
       )}
     </View>
@@ -1142,7 +987,6 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     fontWeight: '600',
   },
-  // AJOUT : Styles pour le bouton sélecteur Découverte / Carte
   toggleContainer: {
     flexDirection: 'row',
     backgroundColor: COLORS.lightGray,
@@ -1177,7 +1021,6 @@ const styles = StyleSheet.create({
   toggleTextActive: {
     color: COLORS.white,
   },
-  // AJOUT : Styles de positionnement des cartes Tinder empilées (deck)
   cardContainer: {
     height: height * 0.77,
     alignItems: 'center',
@@ -1198,7 +1041,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  // AJOUT : Conteneur pour le bouton flottant J'adore et les cœurs volants
   likeBtnContainer: {
     position: 'absolute',
     bottom: 25,
@@ -1209,7 +1051,7 @@ const styles = StyleSheet.create({
     width: 78,
     height: 78,
     borderRadius: 39,
-    backgroundColor: '#FF2D55', // Rose/Rouge premium vibrant
+    backgroundColor: '#FF2D55',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 4,
@@ -1226,7 +1068,6 @@ const styles = StyleSheet.create({
     right: 22,
     zIndex: 99,
   },
-  // AJOUT : Tampons PASS / SUIVANT
   nextStamp: {
     position: 'absolute',
     top: 40,
@@ -1296,10 +1137,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // AJOUT : Styles pour l'overlay de chargement global translucide
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)', // Fond blanc transparent premium
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 9999,
@@ -1322,97 +1162,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  // AJOUT : Styles de la carte interactive
   mapContainer: {
     flex: 1,
     overflow: 'hidden',
   },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  // Repère bleu pulsant utilisateur
-  myMarkerContainer: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  myMarkerDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#007AFF',
-    borderWidth: 2,
-    borderColor: COLORS.white,
-    zIndex: 2,
-  },
-  myMarkerPulse: {
-    position: 'absolute',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 122, 255, 0.25)',
-    zIndex: 1,
-  },
-  // Repères ronds photo des autres profils
-  profileMarker: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: COLORS.white,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-  },
-  markerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.lightGray,
-  },
-  // Bulle Callout info
-  calloutContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 12,
-    width: 220,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-  },
-  calloutName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.black,
-  },
-  calloutDistance: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.primary,
-    marginTop: 2,
-  },
-  calloutBio: {
-    fontSize: 12,
-    color: COLORS.gray,
-    marginTop: 6,
-    lineHeight: 16,
-  },
-  calloutAction: {
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  // AJOUT : Styles pour les filtres de distance et pays
   filtersContainer: {
     paddingVertical: 10,
     backgroundColor: COLORS.white,
@@ -1447,7 +1200,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: '700',
   },
-  // AJOUT : Commutateur de filtre (Distance vs Pays)
   filterTypeSwitcher: {
     flexDirection: 'row',
     justifyContent: 'space-between',
