@@ -50,6 +50,9 @@ const HomeScreen = ({ navigation }) => {
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [activeFilterType, setActiveFilterType] = useState('distance');
 
+  // Timer pour le défilement automatique
+  const timerRef = useRef(null);
+
   // Filtrage des profils selon la distance et le pays
   const filteredProfiles = profiles.filter((p) => {
     let matchesDistance = true;
@@ -75,6 +78,34 @@ const HomeScreen = ({ navigation }) => {
 
     return matchesDistance && matchesCountry;
   });
+
+  const handleNextProfile = useCallback(() => {
+    if (filteredProfiles.length === 0) return;
+    setCurrentIndex((prevIndex) => (prevIndex + 1) % filteredProfiles.length);
+  }, [filteredProfiles.length]);
+
+  const handlePrevProfile = useCallback(() => {
+    if (filteredProfiles.length === 0) return;
+    setCurrentIndex((prevIndex) => (prevIndex - 1 + filteredProfiles.length) % filteredProfiles.length);
+  }, [filteredProfiles.length]);
+
+  const resetAutoSlideTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    if (viewMode === 'card' && filteredProfiles.length > 1) {
+      timerRef.current = setInterval(() => {
+        handleNextProfile();
+      }, 10000);
+    }
+  }, [viewMode, filteredProfiles.length, handleNextProfile]);
+
+  useEffect(() => {
+    resetAutoSlideTimer();
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [currentIndex, viewMode, filteredProfiles.length, resetAutoSlideTimer]);
 
   useEffect(() => {
     if (filteredProfiles.length > 0 && currentIndex >= filteredProfiles.length) {
@@ -395,6 +426,7 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const handleLikeSwipe = async () => {
+    resetAutoSlideTimer();
     const currentProfile = filteredProfiles[currentIndex];
     if (!currentProfile) return;
 
@@ -463,6 +495,7 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const handlePassSwipe = async () => {
+    resetAutoSlideTimer();
     const currentProfile = filteredProfiles[currentIndex];
     
     isTransitioning.current = true;
@@ -510,6 +543,7 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const handleLike = () => {
+    resetAutoSlideTimer();
     Animated.sequence([
       Animated.timing(likeBtnScale, {
         toValue: 0.82,
@@ -640,6 +674,8 @@ const HomeScreen = ({ navigation }) => {
     { label: 'Seychelles 🇸🇨', value: 'Seychelles' },
     { label: 'Mayotte 🇾🇹', value: 'Mayotte' },
   ];
+
+  const nextIndex = (currentIndex + 1) % (filteredProfiles.length || 1);
 
   return (
     <View style={styles.container}>
@@ -803,15 +839,39 @@ const HomeScreen = ({ navigation }) => {
             </View>
           ) : (
             <View style={styles.cardContainer}>
-              {currentIndex + 1 < filteredProfiles.length && (
+              {/* BOUTONS DE NAVIGATION PRECEDENT / SUIVANT */}
+              <View style={styles.navButtonsContainer}>
+                <TouchableOpacity
+                  style={styles.navBtn}
+                  onPress={() => {
+                    handlePrevProfile();
+                    resetAutoSlideTimer();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="chevron-back" size={20} color={COLORS.black} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.navBtn}
+                  onPress={() => {
+                    handleNextProfile();
+                    resetAutoSlideTimer();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="chevron-forward" size={20} color={COLORS.black} />
+                </TouchableOpacity>
+              </View>
+
+              {filteredProfiles.length > 1 && (
                 <Animated.View 
-                  key={filteredProfiles[currentIndex + 1].id}
+                  key={filteredProfiles[nextIndex].id}
                   style={[styles.cardUnderneath, animatedUnderneathStyle]}
                 >
                   <ProfileCard
-                    profile={filteredProfiles[currentIndex + 1]}
-                    distance={filteredProfiles[currentIndex + 1].distance}
-                    compatibilityScore={computeCompatibilityScore(profile, filteredProfiles[currentIndex + 1])}
+                    profile={filteredProfiles[nextIndex]}
+                    distance={filteredProfiles[nextIndex].distance}
+                    compatibilityScore={computeCompatibilityScore(profile, filteredProfiles[nextIndex])}
                   />
                 </Animated.View>
               )}
@@ -1028,6 +1088,29 @@ const styles = StyleSheet.create({
     width: '100%',
     position: 'relative',
     marginVertical: 10,
+  },
+  navButtonsContainer: {
+    position: 'absolute',
+    top: '50%', // Place le conteneur au milieu de la hauteur de la carte
+    transform: [{ translateY: -19 }], // Ajuste pour centrer parfaitement le bouton (hauteur de 38px / 2)
+    zIndex: 1000,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: width * 0.92, // Élargit légèrement pour placer les boutons sur les bords
+    paddingHorizontal: 2,
+  },
+  navBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   cardTop: {
     position: 'absolute',
