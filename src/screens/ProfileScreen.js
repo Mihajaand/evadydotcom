@@ -439,7 +439,6 @@ const ProfileScreen = ({ route, navigation }) => {
     );
   };
 
-  // Action pour liker un profil visité
   const handleLikeUser = async () => {
     if (!targetUserId || !userId) return;
     try {
@@ -465,7 +464,6 @@ const ProfileScreen = ({ route, navigation }) => {
             content: `a aimé votre profil.`,
           });
 
-          // Vérification si Match
           const { data: mutualLike } = await supabase
             .from('likes')
             .select('id')
@@ -485,22 +483,16 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   };
 
-  // Action pour démarrer une discussion
- // ProfileScreen.js
+  const handleSendMessage = () => {
+    if (!targetUserId) return;
 
-// Remplacez handleSendMessage par ceci :
-const handleSendMessage = () => {
-  if (!targetUserId) return;
-
-  // ⚠️ Remarque : Vérifiez aussi si le nom du screen dans votre Stack Navigator 
-  // est 'ChatDetail' ou 'ChatScreen'.
-  navigation.navigate('Chat', {
-  partnerId: targetUserId,
-  partnerName: profile?.full_name,
-  partnerAvatar: profile?.avatar_url,
-  partnerGender: profile?.gender,
-});
-};
+    navigation.navigate('Chat', {
+      partnerId: targetUserId,
+      partnerName: profile?.full_name,
+      partnerAvatar: profile?.avatar_url,
+      partnerGender: profile?.gender,
+    });
+  };
 
   const toggleInterest = (interest) => {
     setSelectedInterests((prev) =>
@@ -887,6 +879,40 @@ const handleSendMessage = () => {
               : "Appuyez sur une photo pour l'agrandir"}
           </Text>
         </View>
+
+        {/* Actions */}
+        {isOwnProfile && (
+          <View style={styles.actionsSection}>
+            {profile?.gender === 'MALE' && (
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={() => navigation.navigate('Subscription')}
+              >
+                <View style={styles.actionLeft}>
+                  <Ionicons name="diamond-outline" size={22} color={COLORS.primary} />
+                  <Text style={styles.actionText}>Mon abonnement</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.actionRow, saving && styles.logoutButtonDisabled]}
+              onPress={handleLogout}
+              disabled={saving}
+            >
+              <View style={styles.actionLeft}>
+                <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
+                <Text style={[styles.actionText, styles.logoutText]}>Déconnexion</Text>
+              </View>
+              {saving ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* BARRE D'ACTION (Bouton Like & Message) lorsqu'on visite le profil de quelqu'un */}
@@ -1249,6 +1275,40 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+
+  /* --- CSS DE LA SECTION D'ACTIONS (ABONNEMENT ET DÉCONNEXION) --- */
+  actionsSection: {
+    paddingHorizontal: 20,
+    marginTop: 25,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: COLORS.lightGray || '#F5F5F5',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  actionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.black,
+  },
+  logoutText: {
+    color: COLORS.danger,
+  },
+  logoutButtonDisabled: {
+    opacity: 0.6,
+  },
+
+  /* --- AUTRES STYLES --- */
   actionButtonsBar: {
     position: 'absolute',
     bottom: 25,
