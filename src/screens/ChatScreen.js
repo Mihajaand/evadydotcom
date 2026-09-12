@@ -408,11 +408,11 @@ const ChatScreen = ({ route, navigation }) => {
           showsVerticalScrollIndicator={false}
           inverted
           ListEmptyComponent={
-            <View style={[styles.center, { transform: [{ scaleY: -1 }] }]}>
-              <Ionicons name="chatbubble-ellipses-outline" size={50} color={COLORS.gray} />
-              <Text style={styles.emptyText}>Commencez la conversation !</Text>
-            </View>
-          }
+  <View style={[styles.center, { transform: [{ rotate: '180deg' }] }]}>
+    <Ionicons name="chatbubble-ellipses-outline" size={50} color={COLORS.gray} />
+    <Text style={styles.emptyText}>Commencez la conversation !</Text>
+  </View>
+}
         />
       )}
 

@@ -4,14 +4,11 @@
  * 
  * Stack: React Native (Expo) + Supabase + Stripe Checkout (web) + Zustand
  */
-/**
- * E-VADY - Application de rencontres
- * Point d'entrée principal
- */
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context'; // 👈 1. Import ajouté
 import Toast from 'react-native-toast-message';
 
 import AppNavigator from './src/navigation/AppNavigator';
@@ -19,8 +16,8 @@ import LoadingScreen from './src/components/LoadingScreen';
 import useAuth from './src/hooks/useAuth';
 import useMaintenanceStore from './src/store/maintenanceStore';
 import { LogBox } from 'react-native';
-LogBox.ignoreLogs(['expo-notifications:']);
 
+LogBox.ignoreLogs(['expo-notifications:']);
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -44,11 +41,14 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <NavigationContainer>
-        <StatusBar style="dark" />
-        <AppNavigator />
-      </NavigationContainer>
-      <Toast />
+      {/* 👈 2. Envelopper NavigationContainer avec SafeAreaProvider */}
+      <SafeAreaProvider>
+        <NavigationContainer>
+          <StatusBar style="dark" />
+          <AppNavigator />
+        </NavigationContainer>
+        <Toast />
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

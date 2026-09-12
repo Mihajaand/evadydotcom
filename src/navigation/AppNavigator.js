@@ -11,6 +11,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { View, Text, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // 👈 1. Import ajouté
 
 import { COLORS } from '../utils/constants';
 import useAuthStore from '../store/authStore';
@@ -82,6 +83,7 @@ const AuthStack = () => (
  */
 const MainTabs = () => {
   const unreadTotal = useMessageStore((state) => state.unreadTotal);
+  const insets = useSafeAreaInsets(); // 👈 2. Obtenir la marge du bas du téléphone (Safe Area Insets)
 
   return (
     <Tab.Navigator
@@ -127,9 +129,10 @@ const MainTabs = () => {
           backgroundColor: COLORS.white,
           borderTopWidth: 1,
           borderTopColor: COLORS.lightGray,
-          paddingBottom: 8,
+          // 👈 3. Hauteur et paddings dynamiques grâce aux insets :
           paddingTop: 8,
-          height: 65,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+          height: 60 + (insets.bottom > 0 ? insets.bottom : 0),
           elevation: 10,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
