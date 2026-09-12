@@ -2,6 +2,7 @@
  * Écran Profil - Affichage et édition du profil utilisateur
  * Galerie photos (max 6), paramètres, déconnexion
  * Boutons Valider / Annuler personnalisés pour le choix des photos (Android & iOS)
+ * Boutons d'interaction (Like & Message) lors de la visite du profil d'un autre utilisateur
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -66,12 +67,13 @@ const ProfileScreen = ({ route, navigation }) => {
   const [loadingPhotos, setLoadingPhotos] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [loadingAvatar, setLoadingAvatar] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
 
-  // Nouvel état pour gérer la validation / confirmation manuelle de la photo sélectionnée (iOS & Android)
+  // Validation / confirmation manuelle de la photo sélectionnée (iOS & Android)
   const [pendingPhoto, setPendingPhoto] = useState(null);
   const [isAvatarUpload, setIsAvatarUpload] = useState(false);
 
-  // Nouvelles informations personnelles
+  // Informations personnelles
   const [profession, setProfession] = useState('');
   const [customProfession, setCustomProfession] = useState('');
   const [height, setHeight] = useState(170);
@@ -110,6 +112,7 @@ const ProfileScreen = ({ route, navigation }) => {
       }
     } else if (targetUserId) {
       fetchTargetProfile();
+      checkIfLiked();
     }
   }, [myProfile, user, targetUserId, isOwnProfile]);
 
@@ -118,6 +121,21 @@ const ProfileScreen = ({ route, navigation }) => {
       setDisplayedSubscription(subscription);
     }
   }, [subscription, isOwnProfile]);
+
+  const checkIfLiked = async () => {
+    if (!userId || !targetUserId) return;
+    try {
+      const { data } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('liker_id', userId)
+        .eq('liked_id', targetUserId)
+        .single();
+      if (data) setIsLiked(true);
+    } catch (err) {
+      setIsLiked(false);
+    }
+  };
 
   const fetchTargetProfile = async () => {
     try {
@@ -173,9 +191,6 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   };
 
-  /**
-   * Récupère les photos de l'utilisateur
-   */
   const fetchPhotos = async (uid, currentAvatarUrl = null) => {
     setLoadingPhotos(true);
     const effectiveUid = uid || userId;
@@ -258,9 +273,6 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   };
 
-  /**
-   * Ouvre la galerie et place l'image en attente de confirmation via le Modal Custom
-   */
   const handleSelectImage = async (forAvatar = false) => {
     if (!forAvatar && photos.length >= 6) {
       Alert.alert('Limite atteinte', 'Maximum 6 photos autorisées sur votre profil');
@@ -269,21 +281,17 @@ const ProfileScreen = ({ route, navigation }) => {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: false, // Désactivé pour utiliser notre Modal custom Valider/Annuler
+      allowsEditing: false,
       quality: 0.8,
       base64: true,
     });
 
     if (result.canceled) return;
 
-    // Placer l'image en attente pour affichage du modal de confirmation
     setIsAvatarUpload(forAvatar);
     setPendingPhoto(result.assets[0]);
   };
 
-  /**
-   * Valider et téléverser la photo sélectionnée
-   */
   const handleConfirmPhoto = async () => {
     if (!pendingPhoto) return;
 
@@ -291,7 +299,7 @@ const ProfileScreen = ({ route, navigation }) => {
     if (isProfile) setLoadingAvatar(true);
 
     const file = pendingPhoto;
-    setPendingPhoto(null); // Ferme le modal
+    setPendingPhoto(null);
 
     try {
       let fileExt = 'jpg';
@@ -364,9 +372,6 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   };
 
-  /**
-   * Supprimer une photo
-   */
   const handleDeletePhoto = (photoId) => {
     Alert.alert(
       'Supprimer la photo',
@@ -433,6 +438,69 @@ const ProfileScreen = ({ route, navigation }) => {
       ]
     );
   };
+
+  // Action pour liker un profil visité
+  const handleLikeUser = async () => {
+    if (!targetUserId || !userId) return;
+    try {
+      if (isLiked) {
+        await supabase
+          .from('likes')
+          .delete()
+          .eq('liker_id', userId)
+          .eq('liked_id', targetUserId);
+        setIsLiked(false);
+      } else {
+        const { error } = await supabase.from('likes').insert({
+          liker_id: userId,
+          liked_id: targetUserId,
+        });
+
+        if (!error) {
+          setIsLiked(true);
+          await supabase.from('notifications').insert({
+            user_id: targetUserId,
+            notifier_id: userId,
+            type: 'like',
+            content: `a aimé votre profil.`,
+          });
+
+          // Vérification si Match
+          const { data: mutualLike } = await supabase
+            .from('likes')
+            .select('id')
+            .eq('liker_id', targetUserId)
+            .eq('liked_id', userId)
+            .single();
+
+          if (mutualLike) {
+            Alert.alert('💕 C\'est un Match !', `Vous et ${profile?.full_name} vous aimez mutuellement !`);
+          } else {
+            Alert.alert('Mention J\'aime', `Vous avez aimé le profil de ${profile?.full_name}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Erreur Like profil:', err);
+    }
+  };
+
+  // Action pour démarrer une discussion
+ // ProfileScreen.js
+
+// Remplacez handleSendMessage par ceci :
+const handleSendMessage = () => {
+  if (!targetUserId) return;
+
+  // ⚠️ Remarque : Vérifiez aussi si le nom du screen dans votre Stack Navigator 
+  // est 'ChatDetail' ou 'ChatScreen'.
+  navigation.navigate('Chat', {
+  partnerId: targetUserId,
+  partnerName: profile?.full_name,
+  partnerAvatar: profile?.avatar_url,
+  partnerGender: profile?.gender,
+});
+};
 
   const toggleInterest = (interest) => {
     setSelectedInterests((prev) =>
@@ -505,321 +573,346 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      {/* En-tête profil */}
-      <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          {!isOwnProfile && (
-            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
-              <Ionicons name="arrow-back" size={24} color={COLORS.black} />
-            </TouchableOpacity>
-          )}
-          <Text style={[styles.headerTitle, !isOwnProfile && { flex: 1 }]}>
-            {isOwnProfile ? 'Mon Profil' : profile?.full_name || 'Profil'}
-          </Text>
-        </View>
-        {isOwnProfile && (
-          <TouchableOpacity onPress={() => setEditing(!editing)}>
-            <Ionicons
-              name={editing ? 'close' : 'create-outline'}
-              size={24}
-              color={COLORS.primary}
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Avatar principal */}
-      <View style={styles.avatarSection}>
-        <View style={styles.avatarContainer}>
-          {loadingAvatar ? (
-            <View style={styles.avatarLoadingContainer}>
-              <ActivityIndicator size="large" color={COLORS.primary} />
-            </View>
-          ) : (
-            <Image
-              source={
-                profile?.avatar_url
-                  ? { uri: profile.avatar_url }
-                  : require('../../assets/default-avatar.png')
-              }
-              style={styles.mainAvatar}
-            />
-          )}
-          {isOwnProfile && (
-            <TouchableOpacity
-              style={styles.editAvatarButton}
-              onPress={() => handleSelectImage(true)}
-              disabled={loadingAvatar}
-            >
-              <Ionicons name="camera" size={20} color={COLORS.white} />
-            </TouchableOpacity>
-          )}
-        </View>
-        <Text style={styles.name}>
-          {profile?.full_name}{age ? `, ${age} ans` : ''}
-        </Text>
-        <Text style={styles.gender}>
-          {profile?.gender === 'MALE' ? '👨 Homme' : '👩 Femme'}
-        </Text>
-
-        {profile?.gender === 'MALE' && (
-          <TouchableOpacity
-            style={[
-              styles.subBadge,
-              displayedSubscription?.tier === 'vip' && styles.subBadgeVip,
-              displayedSubscription?.tier === 'premium' && styles.subBadgePremium,
-            ]}
-            onPress={() => isOwnProfile && navigation.navigate('Subscription')}
-            disabled={!isOwnProfile}
-          >
-            <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
-            <Text style={styles.subBadgeText}>
-              {tierLabel[displayedSubscription?.tier] || 'Gratuit'}
+    <View style={{ flex: 1, backgroundColor: COLORS.white }}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+        {/* En-tête profil */}
+        <View style={styles.header}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            {!isOwnProfile && (
+              <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+                <Ionicons name="arrow-back" size={24} color={COLORS.black} />
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.headerTitle, !isOwnProfile && { flex: 1 }]}>
+              {isOwnProfile ? 'Mon Profil' : profile?.full_name || 'Profil'}
             </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Mode édition */}
-      {editing && (
-        <View style={styles.editSection}>
-          <Input
-            label="Nom complet"
-            value={fullName}
-            onChangeText={setFullName}
-            icon="person-outline"
-          />
-          <Input
-            label="Bio"
-            value={bio}
-            onChangeText={setBio}
-            placeholder="Parlez de vous..."
-            multiline
-            icon="text-outline"
-          />
-
-          <Text style={styles.label}>Profession / Études</Text>
-          <View style={styles.chipsContainer}>
-            {PROFESSION_OPTIONS.map((p) => {
-              const active = profession === p;
-              return (
-                <TouchableOpacity
-                  key={p}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => setProfession(p)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {p}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
           </View>
-
-          {profession === 'Autre 👤' && (
-            <Input
-              label="Précisez votre profession"
-              value={customProfession}
-              onChangeText={setCustomProfession}
-              placeholder="Ex: Boulanger, Comptable..."
-              icon="briefcase-outline"
-            />
+          {isOwnProfile && (
+            <TouchableOpacity onPress={() => setEditing(!editing)}>
+              <Ionicons
+                name={editing ? 'close' : 'create-outline'}
+                size={24}
+                color={COLORS.primary}
+              />
+            </TouchableOpacity>
           )}
+        </View>
 
-          <View style={{ marginVertical: 16 }}>
-            <Text style={styles.label}>Taille : {height} cm</Text>
-            <Slider
-              style={{ width: '100%', height: 40 }}
-              minimumValue={140}
-              maximumValue={220}
-              step={1}
-              value={height}
-              onValueChange={(val) => setHeight(val)}
-              minimumTrackTintColor={COLORS.primary}
-              maximumTrackTintColor={COLORS.lightGray}
-              thumbTintColor={COLORS.primary}
+        {/* Avatar principal */}
+        <View style={styles.avatarSection}>
+          <View style={styles.avatarContainer}>
+            {loadingAvatar ? (
+              <View style={styles.avatarLoadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+              </View>
+            ) : (
+              <Image
+                source={
+                  profile?.avatar_url
+                    ? { uri: profile.avatar_url }
+                    : require('../../assets/default-avatar.png')
+                }
+                style={styles.mainAvatar}
+              />
+            )}
+            {isOwnProfile && (
+              <TouchableOpacity
+                style={styles.editAvatarButton}
+                onPress={() => handleSelectImage(true)}
+                disabled={loadingAvatar}
+              >
+                <Ionicons name="camera" size={20} color={COLORS.white} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={styles.name}>
+            {profile?.full_name}{age ? `, ${age} ans` : ''}
+          </Text>
+          <Text style={styles.gender}>
+            {profile?.gender === 'MALE' ? '👨 Homme' : '👩 Femme'}
+          </Text>
+
+          {profile?.gender === 'MALE' && (
+            <TouchableOpacity
+              style={[
+                styles.subBadge,
+                displayedSubscription?.tier === 'vip' && styles.subBadgeVip,
+                displayedSubscription?.tier === 'premium' && styles.subBadgePremium,
+              ]}
+              onPress={() => isOwnProfile && navigation.navigate('Subscription')}
+              disabled={!isOwnProfile}
+            >
+              <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
+              <Text style={styles.subBadgeText}>
+                {tierLabel[displayedSubscription?.tier] || 'Gratuit'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Mode édition */}
+        {editing && (
+          <View style={styles.editSection}>
+            <Input
+              label="Nom complet"
+              value={fullName}
+              onChangeText={setFullName}
+              icon="person-outline"
+            />
+            <Input
+              label="Bio"
+              value={bio}
+              onChangeText={setBio}
+              placeholder="Parlez de vous..."
+              multiline
+              icon="text-outline"
+            />
+
+            <Text style={styles.label}>Profession / Études</Text>
+            <View style={styles.chipsContainer}>
+              {PROFESSION_OPTIONS.map((p) => {
+                const active = profession === p;
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setProfession(p)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {p}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {profession === 'Autre 👤' && (
+              <Input
+                label="Précisez votre profession"
+                value={customProfession}
+                onChangeText={setCustomProfession}
+                placeholder="Ex: Boulanger, Comptable..."
+                icon="briefcase-outline"
+              />
+            )}
+
+            <View style={{ marginVertical: 16 }}>
+              <Text style={styles.label}>Taille : {height} cm</Text>
+              <Slider
+                style={{ width: '100%', height: 40 }}
+                minimumValue={140}
+                maximumValue={220}
+                step={1}
+                value={height}
+                onValueChange={(val) => setHeight(val)}
+                minimumTrackTintColor={COLORS.primary}
+                maximumTrackTintColor={COLORS.lightGray}
+                thumbTintColor={COLORS.primary}
+              />
+            </View>
+
+            <Text style={styles.label}>Centres d'intérêt</Text>
+            <View style={styles.chipsContainer}>
+              {INTEREST_OPTIONS.map((interest) => {
+                const active = selectedInterests.includes(interest);
+                return (
+                  <TouchableOpacity
+                    key={interest}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => toggleInterest(interest)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {interest}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.label}>Croyances</Text>
+            <View style={styles.chipsContainer}>
+              {BELIEF_OPTIONS.map((belief) => {
+                const active = selectedBeliefs === belief;
+                return (
+                  <TouchableOpacity
+                    key={belief}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setSelectedBeliefs(active ? '' : belief)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {belief}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.label}>Style de vie</Text>
+            <View style={styles.chipsContainer}>
+              {LIFESTYLE_OPTIONS.map((lifestyle) => {
+                const active = selectedLifestyles.includes(lifestyle);
+                return (
+                  <TouchableOpacity
+                    key={lifestyle}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => toggleLifestyle(lifestyle)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {lifestyle}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Button
+              title="Sauvegarder"
+              onPress={handleSave}
+              loading={saving}
+              style={{ marginTop: 16 }}
             />
           </View>
+        )}
 
-          <Text style={styles.label}>Centres d'intérêt</Text>
-          <View style={styles.chipsContainer}>
-            {INTEREST_OPTIONS.map((interest) => {
-              const active = selectedInterests.includes(interest);
-              return (
-                <TouchableOpacity
-                  key={interest}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => toggleInterest(interest)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {interest}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+        {/* Mode Visualisation */}
+        {!editing && (
+          <View>
+            {profile?.bio ? (
+              <View style={styles.bioSection}>
+                <Text style={styles.sectionTitle}>À propos</Text>
+                <Text style={styles.bioText}>{profile.bio}</Text>
+              </View>
+            ) : null}
 
-          <Text style={styles.label}>Croyances</Text>
-          <View style={styles.chipsContainer}>
-            {BELIEF_OPTIONS.map((belief) => {
-              const active = selectedBeliefs === belief;
-              return (
-                <TouchableOpacity
-                  key={belief}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => setSelectedBeliefs(active ? '' : belief)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {belief}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+            {(profile?.profession ||
+              profile?.height ||
+              profile?.beliefs ||
+              (profile?.interests && profile?.interests.length > 0) ||
+              (profile?.lifestyle && profile?.lifestyle.length > 0)) && (
+              <View style={styles.detailsSection}>
+                <Text style={styles.sectionTitle}>Informations personnelles</Text>
 
-          <Text style={styles.label}>Style de vie</Text>
-          <View style={styles.chipsContainer}>
-            {LIFESTYLE_OPTIONS.map((lifestyle) => {
-              const active = selectedLifestyles.includes(lifestyle);
-              return (
-                <TouchableOpacity
-                  key={lifestyle}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => toggleLifestyle(lifestyle)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {lifestyle}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                <View style={styles.infoRowGrid}>
+                  {profile?.height ? (
+                    <View style={styles.infoBadge}>
+                      <Ionicons name="resize-outline" size={16} color={COLORS.primary} />
+                      <Text style={styles.infoBadgeText}>{profile.height}</Text>
+                    </View>
+                  ) : null}
 
-          <Button
-            title="Sauvegarder"
-            onPress={handleSave}
-            loading={saving}
-            style={{ marginTop: 16 }}
-          />
-        </View>
-      )}
+                  {profile?.profession ? (
+                    <View style={styles.infoBadge}>
+                      <Ionicons name="briefcase-outline" size={16} color={COLORS.primary} />
+                      <Text style={styles.infoBadgeText}>{profile.profession}</Text>
+                    </View>
+                  ) : null}
 
-      {/* Mode Visualisation */}
-      {!editing && (
-        <View>
-          {profile?.bio ? (
-            <View style={styles.bioSection}>
-              <Text style={styles.sectionTitle}>À propos</Text>
-              <Text style={styles.bioText}>{profile.bio}</Text>
-            </View>
-          ) : null}
+                  {profile?.beliefs ? (
+                    <View style={styles.infoBadge}>
+                      <Ionicons name="bookmark-outline" size={16} color={COLORS.primary} />
+                      <Text style={styles.infoBadgeText}>{profile.beliefs}</Text>
+                    </View>
+                  ) : null}
+                </View>
 
-          {(profile?.profession ||
-            profile?.height ||
-            profile?.beliefs ||
-            (profile?.interests && profile?.interests.length > 0) ||
-            (profile?.lifestyle && profile?.lifestyle.length > 0)) && (
-            <View style={styles.detailsSection}>
-              <Text style={styles.sectionTitle}>Informations personnelles</Text>
-
-              <View style={styles.infoRowGrid}>
-                {profile?.height ? (
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="resize-outline" size={16} color={COLORS.primary} />
-                    <Text style={styles.infoBadgeText}>{profile.height}</Text>
+                {profile?.interests && profile.interests.length > 0 ? (
+                  <View style={styles.tagsGroup}>
+                    <Text style={styles.subSectionTitle}>Centres d'intérêt</Text>
+                    <View style={styles.tagsContainer}>
+                      {profile.interests.map((tag) => (
+                        <View key={tag} style={styles.tagChip}>
+                          <Text style={styles.tagChipText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 ) : null}
 
-                {profile?.profession ? (
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="briefcase-outline" size={16} color={COLORS.primary} />
-                    <Text style={styles.infoBadgeText}>{profile.profession}</Text>
-                  </View>
-                ) : null}
-
-                {profile?.beliefs ? (
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="bookmark-outline" size={16} color={COLORS.primary} />
-                    <Text style={styles.infoBadgeText}>{profile.beliefs}</Text>
+                {profile?.lifestyle && profile.lifestyle.length > 0 ? (
+                  <View style={styles.tagsGroup}>
+                    <Text style={styles.subSectionTitle}>Style de vie</Text>
+                    <View style={styles.tagsContainer}>
+                      {profile.lifestyle.map((tag) => (
+                        <View key={tag} style={[styles.tagChip, styles.lifestyleTagBg]}>
+                          <Text style={styles.tagChipText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 ) : null}
               </View>
+            )}
+          </View>
+        )}
 
-              {profile?.interests && profile.interests.length > 0 ? (
-                <View style={styles.tagsGroup}>
-                  <Text style={styles.subSectionTitle}>Centres d'intérêt</Text>
-                  <View style={styles.tagsContainer}>
-                    {profile.interests.map((tag) => (
-                      <View key={tag} style={styles.tagChip}>
-                        <Text style={styles.tagChipText}>{tag}</Text>
+        {/* Galerie photos */}
+        <View style={styles.photosSection}>
+          <Text style={styles.sectionTitle}>Photos ({photos.length}/6)</Text>
+          <View style={styles.photosGrid}>
+            {loadingPhotos ? (
+              <SkeletonPhotos />
+            ) : (
+              <>
+                {photos.map((photo) => (
+                  <TouchableOpacity
+                    key={photo.id}
+                    style={styles.photoItem}
+                    onPress={() => setSelectedPhoto(photo)}
+                  >
+                    <Image source={{ uri: photo.url }} style={styles.photo} />
+                    {photo.is_profile && (
+                      <View style={styles.profileBadge}>
+                        <Text style={styles.profileBadgeText}>Profil</Text>
                       </View>
-                    ))}
-                  </View>
-                </View>
-              ) : null}
+                    )}
+                  </TouchableOpacity>
+                ))}
 
-              {profile?.lifestyle && profile.lifestyle.length > 0 ? (
-                <View style={styles.tagsGroup}>
-                  <Text style={styles.subSectionTitle}>Style de vie</Text>
-                  <View style={styles.tagsContainer}>
-                    {profile.lifestyle.map((tag) => (
-                      <View key={tag} style={[styles.tagChip, styles.lifestyleTagBg]}>
-                        <Text style={styles.tagChipText}>{tag}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          )}
+                {isOwnProfile && photos.length < 6 && (
+                  <TouchableOpacity style={styles.addPhotoBtn} onPress={() => handleSelectImage(false)}>
+                    <Ionicons name="add" size={32} color={COLORS.primary} />
+                    <Text style={styles.addPhotoText}>Ajouter</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
+          <Text style={styles.photoHint}>
+            {isOwnProfile
+              ? "Appuyez sur une photo pour l'agrandir ou la supprimer"
+              : "Appuyez sur une photo pour l'agrandir"}
+          </Text>
+        </View>
+      </ScrollView>
+
+      {/* BARRE D'ACTION (Bouton Like & Message) lorsqu'on visite le profil de quelqu'un */}
+      {!isOwnProfile && (
+        <View style={styles.actionButtonsBar}>
+          <TouchableOpacity
+            style={[styles.actionBtn, isLiked ? styles.likedBtn : styles.likeBtn]}
+            onPress={handleLikeUser}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={isLiked ? "heart" : "heart-outline"} size={24} color={COLORS.white} />
+            <Text style={styles.actionBtnText}>{isLiked ? "Aimé" : "Liker"}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.messageBtn]}
+            onPress={handleSendMessage}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={24} color={COLORS.white} />
+            <Text style={styles.actionBtnText}>Message</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* Galerie photos */}
-      <View style={styles.photosSection}>
-        <Text style={styles.sectionTitle}>Photos ({photos.length}/6)</Text>
-        <View style={styles.photosGrid}>
-          {loadingPhotos ? (
-            <SkeletonPhotos />
-          ) : (
-            <>
-              {photos.map((photo) => (
-                <TouchableOpacity
-                  key={photo.id}
-                  style={styles.photoItem}
-                  onPress={() => setSelectedPhoto(photo)}
-                >
-                  <Image source={{ uri: photo.url }} style={styles.photo} />
-                  {photo.is_profile && (
-                    <View style={styles.profileBadge}>
-                      <Text style={styles.profileBadgeText}>Profil</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
-
-              {isOwnProfile && photos.length < 6 && (
-                <TouchableOpacity style={styles.addPhotoBtn} onPress={() => handleSelectImage(false)}>
-                  <Ionicons name="add" size={32} color={COLORS.primary} />
-                  <Text style={styles.addPhotoText}>Ajouter</Text>
-                </TouchableOpacity>
-              )}
-            </>
-          )}
-        </View>
-        <Text style={styles.photoHint}>
-          {isOwnProfile
-            ? "Appuyez sur une photo pour l'agrandir ou la supprimer"
-            : "Appuyez sur une photo pour l'agrandir"}
-        </Text>
-      </View>
-
-      {/* MODAL CUSTOM : Confirmation / Validation de la photo (iOS & Android) */}
+      {/* MODAL CUSTOM : Confirmation / Validation de la photo */}
       <Modal
         visible={pendingPhoto !== null}
         transparent={true}
@@ -899,49 +992,15 @@ const ProfileScreen = ({ route, navigation }) => {
                 resizeMode="contain"
               />
               {selectedPhoto.is_profile && (
-                <View style={styles.modalProfileBadge}>
-                  <Text style={styles.modalProfileBadgeText}>Photo de Profil</Text>
+                <View style={styles.modalProfileTag}>
+                  <Text style={styles.modalProfileTagText}>Photo de profil actuelle</Text>
                 </View>
               )}
             </View>
           )}
         </View>
       </Modal>
-
-      {/* Actions */}
-      {isOwnProfile && (
-        <View style={styles.actionsSection}>
-          {profile?.gender === 'MALE' && (
-            <TouchableOpacity
-              style={styles.actionRow}
-              onPress={() => navigation.navigate('Subscription')}
-            >
-              <View style={styles.actionLeft}>
-                <Ionicons name="diamond-outline" size={22} color={COLORS.primary} />
-                <Text style={styles.actionText}>Mon abonnement</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={[styles.actionRow, saving && styles.logoutButtonDisabled]}
-            onPress={handleLogout}
-            disabled={saving}
-          >
-            <View style={styles.actionLeft}>
-              <Ionicons name="log-out-outline" size={22} color={COLORS.danger} />
-              <Text style={[styles.actionText, styles.logoutText]}>Déconnexion</Text>
-            </View>
-            {saving ? (
-              <ActivityIndicator size="small" color={COLORS.primary} />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
-    </ScrollView>
+    </View>
   );
 };
 
@@ -951,38 +1010,40 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 110,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 10,
+    paddingTop: 50,
+    paddingBottom: 15,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: 'bold',
     color: COLORS.black,
   },
   avatarSection: {
     alignItems: 'center',
-    paddingVertical: 20,
+    marginVertical: 15,
   },
   avatarContainer: {
     position: 'relative',
+    marginBottom: 10,
+  },
+  mainAvatar: {
     width: 120,
     height: 120,
     borderRadius: 60,
+    backgroundColor: COLORS.lightGray,
   },
   avatarLoadingContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
     backgroundColor: COLORS.lightGray,
-    borderWidth: 3,
-    borderColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -998,25 +1059,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: COLORS.white,
-    elevation: 3,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  mainAvatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: COLORS.lightGray,
-    borderWidth: 3,
-    borderColor: COLORS.primary,
   },
   name: {
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: 'bold',
     color: COLORS.black,
-    marginTop: 12,
   },
   gender: {
     fontSize: 14,
@@ -1026,44 +1073,66 @@ const styles = StyleSheet.create({
   subBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: COLORS.secondary,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 10,
-  },
-  subBadgeVip: {
-    backgroundColor: '#FFD700',
+    backgroundColor: COLORS.gray,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+    gap: 4,
   },
   subBadgePremium: {
     backgroundColor: COLORS.primary,
   },
+  subBadgeVip: {
+    backgroundColor: '#FFD700',
+  },
   subBadgeText: {
     color: COLORS.white,
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   editSection: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 10,
   },
   label: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: COLORS.black,
-    marginBottom: 10,
-    marginTop: 16,
+    marginTop: 15,
+    marginBottom: 8,
+  },
+  chipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: COLORS.lightGray,
+  },
+  chipActive: {
+    backgroundColor: COLORS.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    color: COLORS.darkGray,
+  },
+  chipTextActive: {
+    color: COLORS.white,
+    fontWeight: 'bold',
   },
   bioSection: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 15,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: COLORS.black,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   bioText: {
     fontSize: 15,
@@ -1072,147 +1141,157 @@ const styles = StyleSheet.create({
   },
   detailsSection: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 20,
   },
   infoRowGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginVertical: 8,
   },
   infoBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: COLORS.lightGray,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 12,
+    borderRadius: 20,
     gap: 6,
   },
   infoBadgeText: {
-    fontSize: 14,
-    color: COLORS.darkGray,
+    fontSize: 13,
     fontWeight: '600',
+    color: COLORS.black,
   },
   tagsGroup: {
-    marginTop: 14,
+    marginTop: 12,
   },
   subSectionTitle: {
     fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.black,
-    marginBottom: 8,
+    fontWeight: '600',
+    color: COLORS.gray,
+    marginBottom: 6,
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
   },
   tagChip: {
+    backgroundColor: 'rgba(255, 45, 85, 0.1)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: 'rgba(241, 62, 147, 0.08)',
+    borderRadius: 14,
   },
   lifestyleTagBg: {
-    backgroundColor: 'rgba(0, 149, 246, 0.08)',
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
   },
   tagChipText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.darkGray,
-  },
-  chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
-  },
-  chipActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.darkGray,
-  },
-  chipTextActive: {
-    color: COLORS.white,
-    fontWeight: '700',
+    color: COLORS.black,
   },
   photosSection: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 25,
   },
   photosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+    marginTop: 10,
   },
   photoItem: {
     width: '31%',
-    aspectRatio: 0.75,
+    aspectRatio: 1,
     borderRadius: 12,
     overflow: 'hidden',
+    position: 'relative',
   },
   photo: {
     width: '100%',
     height: '100%',
-    backgroundColor: COLORS.lightGray,
   },
   profileBadge: {
     position: 'absolute',
-    bottom: 6,
-    left: 6,
+    bottom: 4,
+    left: 4,
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 4,
   },
   profileBadgeText: {
     color: COLORS.white,
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 9,
+    fontWeight: 'bold',
   },
   addPhotoBtn: {
     width: '31%',
-    aspectRatio: 0.75,
+    aspectRatio: 1,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: COLORS.primary,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 45, 85, 0.05)',
   },
   addPhotoText: {
-    color: COLORS.primary,
     fontSize: 12,
+    color: COLORS.primary,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 2,
   },
   photoHint: {
     fontSize: 12,
     color: COLORS.gray,
     marginTop: 8,
-    fontStyle: 'italic',
+    textAlign: 'center',
   },
-
-  /* --- Styles du Modal de Confirmation Custom (Valider / Annuler) --- */
-  confirmModalContainer: {
+  actionButtonsBar: {
+    position: 'absolute',
+    bottom: 25,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 15,
+  },
+  actionBtn: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    flexDirection: 'row',
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    gap: 8,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+  },
+  likeBtn: {
+    backgroundColor: '#FF2D55',
+  },
+  likedBtn: {
+    backgroundColor: '#34C759',
+  },
+  messageBtn: {
+    backgroundColor: '#007AFF',
+  },
+  actionBtnText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  confirmModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   confirmCard: {
     width: '100%',
@@ -1220,86 +1299,66 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
   },
   confirmTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: 'bold',
+    marginBottom: 15,
     color: COLORS.black,
-    marginBottom: 16,
   },
   confirmImagePreview: {
-    width: '100%',
-    height: 300,
-    borderRadius: 14,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     marginBottom: 20,
-    backgroundColor: COLORS.lightGray,
   },
   confirmButtonsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 15,
     width: '100%',
-    gap: 12,
   },
   confirmBtn: {
     flex: 1,
     flexDirection: 'row',
     height: 48,
-    borderRadius: 12,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   cancelBtn: {
-    backgroundColor: '#F3F4F6',
-  },
-  cancelBtnText: {
-    color: COLORS.darkGray,
-    fontWeight: '700',
-    fontSize: 15,
+    backgroundColor: COLORS.lightGray,
   },
   validateBtn: {
     backgroundColor: COLORS.primary,
   },
+  cancelBtnText: {
+    color: COLORS.darkGray,
+    fontWeight: '600',
+  },
   validateBtnText: {
     color: COLORS.white,
-    fontWeight: '700',
-    fontSize: 15,
+    fontWeight: 'bold',
   },
-
-  /* --- Modal Plein Écran --- */
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    backgroundColor: '#000',
     justifyContent: 'center',
-    alignItems: 'center',
   },
   modalHeader: {
-    width: '100%',
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    right: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    position: 'absolute',
-    top: 0,
     zIndex: 10,
   },
   modalCloseButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 8,
   },
   modalDeleteButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 8,
   },
   modalImageContainer: {
     width: '100%',
@@ -1311,46 +1370,18 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  modalProfileBadge: {
+  modalProfileTag: {
     position: 'absolute',
     bottom: 20,
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 12,
   },
-  modalProfileBadgeText: {
+  modalProfileTagText: {
     color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  actionsSection: {
-    paddingHorizontal: 20,
-    marginTop: 10,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-  },
-  actionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  actionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.black,
-  },
-  logoutText: {
-    color: COLORS.danger,
-  },
-  logoutButtonDisabled: {
-    opacity: 0.6,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 
