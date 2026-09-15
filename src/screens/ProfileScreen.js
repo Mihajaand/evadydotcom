@@ -16,6 +16,7 @@ import {
   Modal,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { customAlert } from '../utils/helpers';
 
 const Alert = {
@@ -51,6 +52,7 @@ const PROFESSION_OPTIONS = [
 ];
 
 const ProfileScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets();
   const { user, profile: myProfile, logout, updateProfile } = useAuthStore();
   const { subscription, fetchSubscription } = useSubscriptionStore();
 
@@ -566,9 +568,15 @@ const ProfileScreen = ({ route, navigation }) => {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.white }}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: isOwnProfile ? 110 : 130 + insets.bottom },
+        ]}
+      >
         {/* En-tête profil */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 50) }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             {!isOwnProfile && (
               <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
@@ -915,9 +923,14 @@ const ProfileScreen = ({ route, navigation }) => {
         )}
       </ScrollView>
 
-      {/* BARRE D'ACTION (Bouton Like & Message) lorsqu'on visite le profil de quelqu'un */}
+      {/* BARRE D'ACTION (Bouton Like & Message) lors de la visite d'un profil */}
       {!isOwnProfile && (
-        <View style={styles.actionButtonsBar}>
+        <View
+          style={[
+            styles.actionButtonsBar,
+            { bottom: Math.max(insets.bottom + 15, 25) },
+          ]}
+        >
           <TouchableOpacity
             style={[styles.actionBtn, isLiked ? styles.likedBtn : styles.likeBtn]}
             onPress={handleLikeUser}
@@ -988,7 +1001,7 @@ const ProfileScreen = ({ route, navigation }) => {
         onRequestClose={() => setSelectedPhoto(null)}
       >
         <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { top: Math.max(insets.top + 10, 50) }]}>
             <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setSelectedPhoto(null)}
@@ -1043,7 +1056,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 50,
     paddingBottom: 15,
   },
   headerTitle: {
@@ -1276,7 +1288,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* --- CSS DE LA SECTION D'ACTIONS (ABONNEMENT ET DÉCONNEXION) --- */
+  /* --- SECTION D'ACTIONS --- */
   actionsSection: {
     paddingHorizontal: 20,
     marginTop: 25,
@@ -1308,10 +1320,9 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  /* --- AUTRES STYLES --- */
+  /* --- BARRE DE BOUTONS D'ACTION (Liker & Message) --- */
   actionButtonsBar: {
     position: 'absolute',
-    bottom: 25,
     left: 20,
     right: 20,
     flexDirection: 'row',
@@ -1407,7 +1418,6 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     position: 'absolute',
-    top: 50,
     left: 20,
     right: 20,
     flexDirection: 'row',
