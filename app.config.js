@@ -22,6 +22,16 @@ module.exports = {
     ...(localConfig.plugins || []),
     "@react-native-community/datetimepicker" // <-- RAJOUTÉ ICI
   ],
+  "expo-build-properties": {
+    "ios": {
+      "deploymentTarget": "18.0"
+    }
+  },
+  ios: {
+      supportsTablet: true,
+      bundleIdentifier: "com.mihajamahefa.evady",
+      deploymentTarget: "18.0" 
+    },
   android: {
     ...(baseConfig.android || {}),
     ...(localConfig.android || {}),
