@@ -50,6 +50,7 @@ serve(async (req: Request) => {
       .upsert({
         user_id: userId,
         tier: plan,
+        payment_provider: 'stripe',
         stripe_session_id: sessionId,
         stripe_subscription_id: session.subscription || null,
         stripe_sub_id: session.subscription || null,

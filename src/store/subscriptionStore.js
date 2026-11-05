@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand';
 import { supabase } from '../supabase/client';
+import { REVENUECAT_PRODUCT_TIERS } from '../utils/revenueCatConfig';
 
 const useSubscriptionStore = create((set, get) => ({
   // État
@@ -94,6 +95,31 @@ const useSubscriptionStore = create((set, get) => ({
   },
 
   /**
+   * Synchronise l'état local depuis les informations validées par RevenueCat.
+   * L'activation persistante est effectuée par le webhook serveur.
+   */
+  applyRevenueCatCustomerInfo: (customerInfo) => {
+    const activeEntitlement = Object.values(customerInfo.entitlements.active).find(
+      (entitlement) => REVENUECAT_PRODUCT_TIERS[entitlement.productIdentifier]
+    );
+    if (!activeEntitlement) return null;
+
+    const tier = REVENUECAT_PRODUCT_TIERS[activeEntitlement.productIdentifier];
+    if (!tier) return null;
+
+    const subscription = {
+      ...get().subscription,
+      tier,
+      payment_provider: 'app_store',
+      revenuecat_product_id: activeEntitlement.productIdentifier,
+      expires_at: activeEntitlement.expirationDate,
+      cancel_at_period_end: !activeEntitlement.willRenew,
+    };
+    set({ subscription });
+    return subscription;
+  },
+
+  /**
    * Met à jour l'abonnement après un paiement Stripe réussi
    */
   updateSubscription: async (userId, tier, stripeSubId) => {
@@ -106,6 +132,7 @@ const useSubscriptionStore = create((set, get) => ({
       .upsert({
         user_id: userId,
         tier,
+        payment_provider: 'stripe',
         stripe_sub_id: stripeSubId,
         stripe_subscription_id: stripeSubId,
         expires_at: expiresAt.toISOString(),

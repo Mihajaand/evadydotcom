@@ -54,6 +54,8 @@ serve(async (req) => {
           .from('subscriptions')
           .upsert({
             user_id: userId,
+            tier: subscription.metadata?.plan || undefined,
+            payment_provider: 'stripe',
             stripe_subscription_id: subscriptionId,
             stripe_customer_id: customerId,
             expires_at: periodEnd,
@@ -80,6 +82,7 @@ serve(async (req) => {
           .from('subscriptions')
           .update({
             tier: 'free',
+            payment_provider: 'stripe',
             cancel_at_period_end: false,
           })
           .eq('user_id', userId);
@@ -88,6 +91,7 @@ serve(async (req) => {
           .from('subscriptions')
           .update({
             tier: 'free',
+            payment_provider: 'stripe',
             cancel_at_period_end: false,
           })
           .eq('stripe_customer_id', customerId);

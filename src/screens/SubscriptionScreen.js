@@ -14,6 +14,7 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Linking,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import Toast from 'react-native-toast-message';
@@ -23,6 +24,12 @@ import { COLORS } from '../utils/constants';
 import { STRIPE_CONFIG } from '../utils/stripe';
 import useAuthStore from '../store/authStore';
 import useSubscriptionStore from '../store/subscriptionStore';
+import {
+  getAvailablePackages,
+  purchasePackage,
+  restorePurchases,
+  showManageSubscriptions,
+} from '../utils/revenueCat';
 
 // ---- Définition des plans ----
 const PLANS = [
@@ -76,9 +83,17 @@ const PLANS = [
 
 export default function SubscriptionScreen({ navigation }) {
   const { profile } = useAuthStore();
-  const { subscription, fetchSubscription, cancelSubscription } = useSubscriptionStore();
+  const {
+    subscription,
+    fetchSubscription,
+    cancelSubscription,
+    applyRevenueCatCustomerInfo,
+  } = useSubscriptionStore();
   const [loading, setLoading] = useState(null); // ID du plan en cours de traitement
   const [cancelling, setCancelling] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [iosPackages, setIosPackages] = useState({});
+  const [iosOfferingsError, setIosOfferingsError] = useState(null);
 
   // Un abonnement est expiré si la date d'expiration est atteinte
   const isExpired = subscription?.expires_at
@@ -93,12 +108,45 @@ export default function SubscriptionScreen({ navigation }) {
     if (profile?.id) {
       fetchSubscription(profile.id);
     }
-  }, [profile]);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !profile?.id) return undefined;
+
+    let active = true;
+    getAvailablePackages(profile.id)
+      .then((packages) => {
+        if (active) {
+          setIosPackages(packages);
+          setIosOfferingsError(null);
+        }
+      })
+      .catch((error) => {
+        console.error('Erreur chargement offres App Store:', error);
+        if (active) setIosOfferingsError(error.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [profile?.id]);
 
   // ---- Gérer la souscription ou le renouvellement ----
   const handleSubscribe = async (plan) => {
     if (plan.id === 'free') {
       Alert.alert('Plan Gratuit', 'Vous êtes actuellement sur le plan gratuit.');
+      return;
+    }
+
+    if (
+      Platform.OS === 'ios' &&
+      currentTier !== 'free' &&
+      subscription.payment_provider !== 'app_store'
+    ) {
+      Alert.alert(
+        'Abonnement déjà actif',
+        'Un abonnement existant est déjà associé à ce compte. Évitez un second prélèvement et gérez d’abord votre abonnement actuel.'
+      );
       return;
     }
 
@@ -111,6 +159,35 @@ export default function SubscriptionScreen({ navigation }) {
     setLoading(plan.id);
 
     try {
+      if (Platform.OS === 'ios') {
+        const selectedPackage = iosPackages[plan.id];
+        if (!selectedPackage) {
+          throw new Error(
+            iosOfferingsError ||
+              'Cette offre App Store est indisponible. Vérifiez la configuration RevenueCat.'
+          );
+        }
+
+        const result = await purchasePackage(profile.id, selectedPackage);
+        const syncedSubscription = applyRevenueCatCustomerInfo(result.customerInfo);
+        if (!syncedSubscription) {
+          throw new Error(
+            'Achat effectué, mais aucun droit d’accès correspondant n’a été renvoyé par RevenueCat. Utilisez « Restaurer les achats » ou contactez le support.'
+          );
+        }
+
+        await useAuthStore.getState().fetchProfile(profile.id);
+        Toast.show({
+          type: 'success',
+          text1: 'Abonnement activé',
+          text2: `Votre abonnement ${plan.name} est désormais actif.`,
+          position: 'bottom',
+          visibilityTime: 4000,
+        });
+        navigation.navigate('MainTabs', { screen: 'Accueil' });
+        return;
+      }
+
       // Appeler l'Edge Function Supabase pour générer la session Checkout Stripe
       const response = await fetch(
         `${STRIPE_CONFIG.FUNCTION_URL}/create-checkout-session`,
@@ -194,6 +271,36 @@ export default function SubscriptionScreen({ navigation }) {
   const handleCancelSubscription = () => {
     if (!subscription?.expires_at) return;
 
+    if (subscription.payment_provider === 'app_store') {
+      Alert.alert(
+        'Gérer l’abonnement Apple',
+        'Apple gère la résiliation et les renouvellements. Vous pouvez modifier ou annuler votre abonnement dans les réglages de votre compte App Store.',
+        [
+          { text: 'Plus tard', style: 'cancel' },
+          {
+            text: 'Ouvrir les abonnements',
+            onPress: async () => {
+              try {
+                await showManageSubscriptions(profile.id);
+              } catch (error) {
+                console.error('Erreur ouverture abonnements Apple:', error);
+                try {
+                  await Linking.openURL('https://apps.apple.com/account/subscriptions');
+                } catch (linkError) {
+                  console.error('Erreur ouverture réglages App Store:', linkError);
+                  Alert.alert(
+                    'Erreur',
+                    'Impossible d’ouvrir la gestion des abonnements Apple.'
+                  );
+                }
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     const formattedDate = new Date(subscription.expires_at).toLocaleDateString('fr-FR', {
       day: 'numeric',
       month: 'long',
@@ -231,6 +338,32 @@ export default function SubscriptionScreen({ navigation }) {
     );
   };
 
+  const handleRestorePurchases = async () => {
+    if (!profile?.id) return;
+    setRestoring(true);
+    try {
+      const customerInfo = await restorePurchases(profile.id);
+      const restoredSubscription = applyRevenueCatCustomerInfo(customerInfo);
+      if (!restoredSubscription) {
+        Alert.alert(
+          'Aucun abonnement à restaurer',
+          'Aucun abonnement App Store actif n’a été trouvé pour ce compte Apple.'
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Achats restaurés',
+        `Votre abonnement ${restoredSubscription.tier.toUpperCase()} est actif.`
+      );
+    } catch (error) {
+      console.error('Erreur restauration achats:', error);
+      Alert.alert('Erreur', error.message || 'Impossible de restaurer les achats.');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   // ---- Rendu d'une carte de plan ----
   const renderPlanCard = (plan) => {
     const isCurrentPlan = currentTier === plan.id && !isExpired;
@@ -262,7 +395,9 @@ export default function SubscriptionScreen({ navigation }) {
         </Text>
 
         <View style={styles.priceRow}>
-          <Text style={styles.price}>{plan.price}</Text>
+          <Text style={styles.price}>
+            {iosPackages[plan.id]?.product.priceString || plan.price}
+          </Text>
           <Text style={styles.period}>{plan.period}</Text>
         </View>
 
@@ -314,6 +449,12 @@ export default function SubscriptionScreen({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {Platform.OS === 'ios' && iosOfferingsError && (
+          <Text style={styles.legalText}>
+            Achats App Store indisponibles : {iosOfferingsError}
+          </Text>
+        )}
+
         {subscription && subscription.tier !== 'free' && (
           <View style={styles.activeSubscriptionCard}>
             <Text style={styles.activeSubscriptionTitle}>Votre abonnement actuel</Text>
@@ -354,7 +495,11 @@ export default function SubscriptionScreen({ navigation }) {
                 {cancelling ? (
                   <ActivityIndicator color="#E91E63" />
                 ) : (
-                  <Text style={styles.cancelButtonText}>Annuler l'abonnement</Text>
+                  <Text style={styles.cancelButtonText}>
+                    {subscription.payment_provider === 'app_store'
+                      ? 'Gérer dans l’App Store'
+                      : "Annuler l'abonnement"}
+                  </Text>
                 )}
               </TouchableOpacity>
             )}
@@ -363,9 +508,23 @@ export default function SubscriptionScreen({ navigation }) {
 
         {PLANS.map(renderPlanCard)}
 
+        {Platform.OS === 'ios' && (
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={handleRestorePurchases}
+            disabled={restoring}
+          >
+            {restoring ? (
+              <ActivityIndicator color="#E91E63" />
+            ) : (
+              <Text style={styles.cancelButtonText}>Restaurer les achats</Text>
+            )}
+          </TouchableOpacity>
+        )}
+
         <Text style={styles.legalText}>
           Les abonnements payants sont renouvelés automatiquement chaque mois.
-          Vous pouvez annuler le renouvellement à tout moment depuis cet écran.
+          Vous pouvez annuler le renouvellement à tout moment depuis cet écran ou les réglages de l’App Store sur iOS.
         </Text>
       </ScrollView>
     </View>

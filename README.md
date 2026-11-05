@@ -101,6 +101,35 @@ e-vady/
 | Premium | 19,99€/mois | 300 |
 | VIP | 39,99€/mois | Illimité |
 
+### Achats intégrés iOS (RevenueCat)
+
+Sur iOS, les plans payants passent par les abonnements auto-renouvelables de
+l’App Store via RevenueCat. Les parcours Web et Android conservent Stripe.
+Le SDK RevenueCat est gratuit et RevenueCat propose une offre gratuite soumise
+à ses conditions et limites commerciales en vigueur.
+
+1. Dans App Store Connect, créez un groupe d’abonnements et trois abonnements
+   mensuels avec ces identifiants :
+   - `evady_basic_monthly`
+   - `evady_premium_monthly`
+   - `evady_vip_monthly`
+2. Dans RevenueCat, liez l’application iOS `com.mihajamahefa.evady`, ajoutez
+   ces produits, créez une offering `current` avec un package par produit et
+   créez les entitlements `basic`, `premium` et `vip`, chacun lié au produit
+   correspondant.
+3. Ajoutez la clé publique iOS du SDK RevenueCat à votre `.env` :
+   `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=appl_...`.
+4. Appliquez `supabase/add_revenuecat_subscriptions.sql` dans le SQL Editor
+   Supabase. Définissez le secret webhook avec
+   `supabase secrets set REVENUECAT_WEBHOOK_AUTHORIZATION=<secret-partagé>`,
+   puis déployez `supabase functions deploy revenuecat-webhook`. Dans
+   RevenueCat, configurez l’URL
+   `https://<projet>.supabase.co/functions/v1/revenuecat-webhook` et le même
+   secret dans l’en-tête `Authorization`.
+5. Construisez l’application iOS avec EAS ou Xcode. Expo Go ne permet pas de
+   réaliser de vrais achats : utilisez un development build et un compte
+   Sandbox Apple pour les essais.
+
 ## 📦 variable d'environmment
 
 # Supabase
