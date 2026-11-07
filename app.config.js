@@ -20,28 +20,32 @@ module.exports = {
   plugins: [
     ...(baseConfig.plugins || []),
     ...(localConfig.plugins || []),
-    "@react-native-community/datetimepicker" // <-- RAJOUTÉ ICI
+    '@react-native-community/datetimepicker',
+    'expo-iap',
+    [
+      'expo-build-properties',
+      {
+        ios: {
+          deploymentTarget: '15.1',
+        },
+      },
+    ],
+    './plugins/withMinimumPodDeploymentTarget',
   ],
-  "expo-build-properties": {
-    "ios": {
-      "deploymentTarget": "18.0"
-    }
-  },
   ios: {
-      supportsTablet: true,
-      bundleIdentifier: "com.mihajamahefa.evady",
-      deploymentTarget: "18.0" 
-    },
+    supportsTablet: true,
+    bundleIdentifier: 'com.mihajamahefa.evady',
+  },
   android: {
     ...(baseConfig.android || {}),
     ...(localConfig.android || {}),
-    package: "com.mihajamahefa.evady"
+    package: 'com.mihajamahefa.evady',
   },
   extra: {
     ...baseConfig.extra,
     ...(localConfig.extra || {}),
     eas: {
-      projectId: "88e4fc74-f8f2-4ad3-b20c-7a634976fed1"
-    }
+      projectId: '88e4fc74-f8f2-4ad3-b20c-7a634976fed1',
+    },
   },
 };

@@ -4,7 +4,6 @@
  */
 import { create } from 'zustand';
 import { supabase } from '../supabase/client';
-import { REVENUECAT_PRODUCT_TIERS } from '../utils/revenueCatConfig';
 
 const useSubscriptionStore = create((set, get) => ({
   // État
@@ -26,27 +25,31 @@ const useSubscriptionStore = create((set, get) => ({
       if (error && error.code !== 'PGRST116') throw error;
 
       // Vérifier si l'abonnement est expiré
-      if (data && data.expires_at && new Date(data.expires_at) < new Date()) {
+      if (
+        data &&
+        data.expires_at &&
+        new Date(data.expires_at) < new Date() &&
+        (data.payment_provider === 'app_store' || data.cancel_at_period_end)
+      ) {
         // Si l'utilisateur a annulé le renouvellement, on repasse en gratuit
-        if (data.cancel_at_period_end) {
-          const { data: updated } = await supabase
+        const { data: updated, error: updateError } = await supabase
             .from('subscriptions')
             .update({ 
               tier: 'free', 
               stripe_sub_id: null, 
               stripe_subscription_id: null, 
+              apple_original_transaction_id: null,
+              apple_transaction_id: null,
+              apple_product_id: null,
+              payment_provider: null,
               expires_at: null,
               cancel_at_period_end: false 
             })
             .eq('user_id', userId)
             .select()
             .single();
-          set({ subscription: updated || { tier: 'free' }, loading: false });
-        } else {
-          // Si le renouvellement automatique est activé, Stripe prolonge l'abonnement.
-          // Le webhook Stripe met à jour expires_at en prod. On garde le plan actif.
-          set({ subscription: data, loading: false });
-        }
+        if (updateError) throw updateError;
+        set({ subscription: updated || { tier: 'free' }, loading: false });
       } else {
         set({ subscription: data || { tier: 'free' }, loading: false });
       }
@@ -54,6 +57,38 @@ const useSubscriptionStore = create((set, get) => ({
       console.error('Erreur fetchSubscription:', error);
       set({ subscription: { tier: 'free' }, loading: false });
     }
+  },
+
+  /**
+   * Vérifie une transaction Apple côté serveur avant d'activer le plan.
+   */
+  verifyAppStorePurchase: async (transactionId, productId, isRestore = false) => {
+    const { data, error } = await supabase.functions.invoke(
+      'verify-app-store-purchase',
+      {
+        body: { transactionId, productId, isRestore },
+      }
+    );
+
+    if (error) throw error;
+    if (!data?.active || !data?.subscription) {
+      throw new Error(data?.error || 'Aucun abonnement Apple actif trouvé.');
+    }
+
+    set({ subscription: data.subscription });
+    return data.subscription;
+  },
+
+  setLocalAppStoreSubscription: (tier, expiresAt) => {
+    set({
+      subscription: {
+        tier,
+        expires_at: expiresAt,
+        payment_provider: 'app_store',
+        cancel_at_period_end: false,
+        local_storekit_test: true,
+      },
+    });
   },
 
   /**
@@ -92,31 +127,6 @@ const useSubscriptionStore = create((set, get) => ({
       set({ loading: false });
       throw error;
     }
-  },
-
-  /**
-   * Synchronise l'état local depuis les informations validées par RevenueCat.
-   * L'activation persistante est effectuée par le webhook serveur.
-   */
-  applyRevenueCatCustomerInfo: (customerInfo) => {
-    const activeEntitlement = Object.values(customerInfo.entitlements.active).find(
-      (entitlement) => REVENUECAT_PRODUCT_TIERS[entitlement.productIdentifier]
-    );
-    if (!activeEntitlement) return null;
-
-    const tier = REVENUECAT_PRODUCT_TIERS[activeEntitlement.productIdentifier];
-    if (!tier) return null;
-
-    const subscription = {
-      ...get().subscription,
-      tier,
-      payment_provider: 'app_store',
-      revenuecat_product_id: activeEntitlement.productIdentifier,
-      expires_at: activeEntitlement.expirationDate,
-      cancel_at_period_end: !activeEntitlement.willRenew,
-    };
-    set({ subscription });
-    return subscription;
   },
 
   /**

@@ -4,8 +4,8 @@
 # working directory name when running `supabase init`.
 project_id = "e-vady"
 
-[functions.revenuecat-webhook]
-verify_jwt = false
+[functions.verify-app-store-purchase]
+verify_jwt = true
 
 [api]
 enabled = true

@@ -101,34 +101,26 @@ e-vady/
 | Premium | 19,99€/mois | 300 |
 | VIP | 39,99€/mois | Illimité |
 
-### Achats intégrés iOS (RevenueCat)
+### Achats intégrés iOS (App Store)
 
-Sur iOS, les plans payants passent par les abonnements auto-renouvelables de
-l’App Store via RevenueCat. Les parcours Web et Android conservent Stripe.
-Le SDK RevenueCat est gratuit et RevenueCat propose une offre gratuite soumise
-à ses conditions et limites commerciales en vigueur.
+Les abonnements iOS utilisent `expo-iap` et les achats auto-renouvelables Apple.
+Les achats Android et Web conservent Stripe. Les identifiants des produits sont
+`basic`, `premium_abo` et `evady_vip_monthly` (ceux déjà créés dans App Store Connect).
 
-1. Dans App Store Connect, créez un groupe d’abonnements et trois abonnements
-   mensuels avec ces identifiants :
-   - `evady_basic_monthly`
-   - `evady_premium_monthly`
-   - `evady_vip_monthly`
-2. Dans RevenueCat, liez l’application iOS `com.mihajamahefa.evady`, ajoutez
-   ces produits, créez une offering `current` avec un package par produit et
-   créez les entitlements `basic`, `premium` et `vip`, chacun lié au produit
-   correspondant.
-3. Ajoutez la clé publique iOS du SDK RevenueCat à votre `.env` :
-   `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=appl_...`.
-4. Appliquez `supabase/add_revenuecat_subscriptions.sql` dans le SQL Editor
-   Supabase. Définissez le secret webhook avec
-   `supabase secrets set REVENUECAT_WEBHOOK_AUTHORIZATION=<secret-partagé>`,
-   puis déployez `supabase functions deploy revenuecat-webhook`. Dans
-   RevenueCat, configurez l’URL
-   `https://<projet>.supabase.co/functions/v1/revenuecat-webhook` et le même
-   secret dans l’en-tête `Authorization`.
-5. Construisez l’application iOS avec EAS ou Xcode. Expo Go ne permet pas de
-   réaliser de vrais achats : utilisez un development build et un compte
-   Sandbox Apple pour les essais.
+Pour activer la validation sécurisée des transactions Apple :
+
+1. Dans App Store Connect, le groupe `e-vady` et les trois abonnements mensuels
+   sont déjà créés. Vérifiez/définissez leurs prix et localisations.
+2. Créez une clé API « In-App Purchase » dans App Store Connect et configurez
+   les secrets Edge Function Supabase (ne les ajoutez jamais à l’application) :
+   `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`,
+   `APP_STORE_PRIVATE_KEY` (clé `.p8`, avec des retours à la ligne), et
+   `APP_STORE_BUNDLE_ID=com.mihajamahefa.evady`.
+3. Appliquez `supabase/add_payment_provider_to_subscriptions.sql` et
+   `supabase/add_app_store_subscription_columns.sql` dans le SQL Editor Supabase.
+4. Déployez `supabase functions deploy verify-app-store-purchase`.
+5. Construisez un development build ou une version TestFlight; Expo Go ne
+   prend pas en charge les achats natifs.
 
 ## 📦 variable d'environmment
 

@@ -1,10 +1,9 @@
 // ============================================================
 // E-VADY — Écran Abonnements
-// Affiche tous les plans et redirige vers Stripe Checkout
-// Compatible Expo Go et Web
+// Apple IAP on iOS; Stripe Checkout on Android and Web.
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,18 +17,14 @@ import {
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import Toast from 'react-native-toast-message';
+import { getAvailablePurchases, showManageSubscriptionsIOS, useIAP } from 'expo-iap';
 
 // Imports des modules internes
 import { COLORS } from '../utils/constants';
 import { STRIPE_CONFIG } from '../utils/stripe';
 import useAuthStore from '../store/authStore';
 import useSubscriptionStore from '../store/subscriptionStore';
-import {
-  getAvailablePackages,
-  purchasePackage,
-  restorePurchases,
-  showManageSubscriptions,
-} from '../utils/revenueCat';
+import { APP_STORE_PRODUCTS, getTierForAppStoreProduct } from '../utils/appStoreProducts';
 
 // ---- Définition des plans ----
 const PLANS = [
@@ -81,19 +76,99 @@ const PLANS = [
   },
 ];
 
+const getStoreProductId = (product) => product?.id || product?.productId;
+
 export default function SubscriptionScreen({ navigation }) {
   const { profile } = useAuthStore();
   const {
     subscription,
     fetchSubscription,
     cancelSubscription,
-    applyRevenueCatCustomerInfo,
+    verifyAppStorePurchase,
+    setLocalAppStoreSubscription,
   } = useSubscriptionStore();
   const [loading, setLoading] = useState(null); // ID du plan en cours de traitement
   const [cancelling, setCancelling] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [iosPackages, setIosPackages] = useState({});
-  const [iosOfferingsError, setIosOfferingsError] = useState(null);
+  const [appStoreError, setAppStoreError] = useState(null);
+  const [appStoreProductsLoading, setAppStoreProductsLoading] = useState(false);
+  const processedTransactions = useRef(new Set());
+  const isRestoringRef = useRef(false);
+
+  const handleAppStorePurchaseRef = useRef(null);
+
+  const {
+    connected: appStoreConnected,
+    subscriptions: appStoreSubscriptions,
+    fetchProducts,
+    requestPurchase,
+    finishTransaction,
+    restorePurchases,
+  } = useIAP({
+    onPurchaseSuccess: (purchase) => {
+      handleAppStorePurchaseRef.current?.(purchase, isRestoringRef.current).catch((error) => {
+        console.error('Erreur vérification achat Apple:', error);
+        Alert.alert(
+          'Vérification de l’achat',
+          error.message || 'Impossible de vérifier l’achat auprès de l’App Store.'
+        );
+      }).finally(() => setLoading(null));
+    },
+    onPurchaseError: (error) => {
+      setLoading(null);
+      if (error.code !== 'user-cancelled') {
+        console.error('Erreur achat App Store:', error);
+        Alert.alert('Erreur App Store', error.message || 'Impossible de réaliser cet achat.');
+      }
+    },
+    onError: (error) => {
+      console.error('Erreur expo-iap:', error);
+      setAppStoreError(error.message);
+    },
+  });
+
+  const handleAppStorePurchase = useCallback(async (purchase, isRestore = false, silent = false) => {
+    const userId = profile?.id;
+    const tier = getTierForAppStoreProduct(purchase.productId);
+    if (!userId || !tier || !purchase.transactionId) {
+      throw new Error('Transaction App Store incomplète ou compte utilisateur absent.');
+    }
+
+    if (processedTransactions.current.has(purchase.transactionId)) return;
+    processedTransactions.current.add(purchase.transactionId);
+
+    try {
+      const isLocalStoreKitTest = __DEV__ && purchase.environmentIOS?.toLowerCase() === 'xcode';
+      if (!isLocalStoreKitTest) {
+        await verifyAppStorePurchase(purchase.transactionId, purchase.productId, isRestore);
+      }
+      await finishTransaction({ purchase, isConsumable: false });
+      if (isLocalStoreKitTest) {
+        const expirationDate = purchase.expirationDateIOS
+          ? new Date(purchase.expirationDateIOS)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        setLocalAppStoreSubscription(tier, expirationDate.toISOString());
+      } else {
+        await fetchSubscription(userId);
+        await useAuthStore.getState().fetchProfile(userId);
+      }
+      if (!silent) {
+        Toast.show({
+          type: 'success',
+          text1: isRestore ? 'Achats restaurés' : 'Abonnement activé',
+          text2: `Votre abonnement ${PLANS.find((plan) => plan.id === tier)?.name || tier} est actif.`,
+          position: 'bottom',
+          visibilityTime: 4000,
+        });
+        navigation.navigate('MainTabs', { screen: 'Accueil' });
+      }
+    } catch (error) {
+      processedTransactions.current.delete(purchase.transactionId);
+      throw error;
+    }
+  }, [profile?.id, verifyAppStorePurchase, setLocalAppStoreSubscription, finishTransaction, fetchSubscription, navigation]);
+
+  handleAppStorePurchaseRef.current = handleAppStorePurchase;
 
   // Un abonnement est expiré si la date d'expiration est atteinte
   const isExpired = subscription?.expires_at
@@ -111,42 +186,47 @@ export default function SubscriptionScreen({ navigation }) {
   }, [profile?.id]);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios' || !profile?.id) return undefined;
+    if (Platform.OS !== 'ios' || !appStoreConnected) return;
 
     let active = true;
-    getAvailablePackages(profile.id)
-      .then((packages) => {
-        if (active) {
-          setIosPackages(packages);
-          setIosOfferingsError(null);
-        }
-      })
-      .catch((error) => {
-        console.error('Erreur chargement offres App Store:', error);
-        if (active) setIosOfferingsError(error.message);
-      });
+    setAppStoreProductsLoading(true);
+    fetchProducts({
+      skus: Object.values(APP_STORE_PRODUCTS),
+      type: 'subs',
+    }).catch((error) => {
+      console.error('Erreur chargement abonnements App Store:', error);
+      if (active) setAppStoreError(error.message);
+    }).finally(() => {
+      if (active) setAppStoreProductsLoading(false);
+    });
 
     return () => {
       active = false;
     };
-  }, [profile?.id]);
+  }, [appStoreConnected, fetchProducts]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !appStoreConnected || !profile?.id) return;
+
+    getAvailablePurchases({ onlyIncludeActiveItemsIOS: true })
+      .then(async (purchases) => {
+        const latestPurchase = purchases
+          .filter((purchase) => getTierForAppStoreProduct(purchase.productId))
+          .sort((left, right) => right.transactionDate - left.transactionDate)[0];
+        if (latestPurchase) {
+          await handleAppStorePurchase(latestPurchase, true, true);
+        }
+      })
+      .catch((error) => {
+        console.error('Erreur synchronisation des achats Apple:', error);
+        setAppStoreError(error.message);
+      });
+  }, [appStoreConnected, profile?.id, handleAppStorePurchase]);
 
   // ---- Gérer la souscription ou le renouvellement ----
   const handleSubscribe = async (plan) => {
     if (plan.id === 'free') {
       Alert.alert('Plan Gratuit', 'Vous êtes actuellement sur le plan gratuit.');
-      return;
-    }
-
-    if (
-      Platform.OS === 'ios' &&
-      currentTier !== 'free' &&
-      subscription.payment_provider !== 'app_store'
-    ) {
-      Alert.alert(
-        'Abonnement déjà actif',
-        'Un abonnement existant est déjà associé à ce compte. Évitez un second prélèvement et gérez d’abord votre abonnement actuel.'
-      );
       return;
     }
 
@@ -156,35 +236,43 @@ export default function SubscriptionScreen({ navigation }) {
       return;
     }
 
+    if (Platform.OS === 'ios' && currentTier !== 'free' && subscription.payment_provider !== 'app_store') {
+      Alert.alert(
+        'Abonnement déjà actif',
+        'Un abonnement existant est déjà associé à ce compte. Gérez d’abord cet abonnement avant d’en acheter un autre.'
+      );
+      return;
+    }
+
     setLoading(plan.id);
 
     try {
       if (Platform.OS === 'ios') {
-        const selectedPackage = iosPackages[plan.id];
-        if (!selectedPackage) {
+        if (!profile?.id) throw new Error('Connectez-vous pour acheter un abonnement.');
+        if (!appStoreConnected) throw new Error('Connexion à l’App Store indisponible. Réessayez.');
+
+        const productId = APP_STORE_PRODUCTS[plan.id];
+        const productIsAvailable = appStoreSubscriptions.some(
+          (product) => getStoreProductId(product) === productId
+        );
+        if (!productIsAvailable && !__DEV__) {
           throw new Error(
-            iosOfferingsError ||
-              'Cette offre App Store est indisponible. Vérifiez la configuration RevenueCat.'
+            appStoreError || 'Cette offre est introuvable dans App Store Connect. Vérifiez sa disponibilité.'
           );
         }
-
-        const result = await purchasePackage(profile.id, selectedPackage);
-        const syncedSubscription = applyRevenueCatCustomerInfo(result.customerInfo);
-        if (!syncedSubscription) {
-          throw new Error(
-            'Achat effectué, mais aucun droit d’accès correspondant n’a été renvoyé par RevenueCat. Utilisez « Restaurer les achats » ou contactez le support.'
-          );
+        if (!productIsAvailable) {
+          console.warn(`SKU ${productId} absent de la liste; tentative directe via StoreKit Debug.`);
         }
 
-        await useAuthStore.getState().fetchProfile(profile.id);
-        Toast.show({
-          type: 'success',
-          text1: 'Abonnement activé',
-          text2: `Votre abonnement ${plan.name} est désormais actif.`,
-          position: 'bottom',
-          visibilityTime: 4000,
+        await requestPurchase({
+          type: 'subs',
+          request: {
+            apple: {
+              sku: productId,
+              appAccountToken: profile.id,
+            },
+          },
         });
-        navigation.navigate('MainTabs', { screen: 'Accueil' });
         return;
       }
 
@@ -257,13 +345,47 @@ export default function SubscriptionScreen({ navigation }) {
         }
       }
     } catch (error) {
+      setLoading(null);
       console.error('Erreur lors du paiement:', error);
       Alert.alert(
         'Erreur de paiement',
         error.message || 'Une erreur est survenue lors de la redirection vers le paiement.'
       );
     } finally {
-      setLoading(null);
+      if (Platform.OS !== 'ios') setLoading(null);
+    }
+  };
+
+  const handleRestorePurchases = async () => {
+    if (!profile?.id) {
+      Alert.alert('Connexion requise', 'Connectez-vous pour restaurer vos achats.');
+      return;
+    }
+
+    setRestoring(true);
+    isRestoringRef.current = true;
+    setAppStoreError(null);
+    try {
+      await restorePurchases();
+      const purchases = await getAvailablePurchases({ onlyIncludeActiveItemsIOS: true });
+      const appStorePurchases = purchases.filter((purchase) =>
+        getTierForAppStoreProduct(purchase.productId)
+      );
+
+      if (!appStorePurchases.length) {
+        Alert.alert('Aucun abonnement', 'Aucun abonnement App Store actif n’a été trouvé.');
+        return;
+      }
+
+      for (const purchase of appStorePurchases) {
+        await handleAppStorePurchase(purchase, true);
+      }
+    } catch (error) {
+      console.error('Erreur restauration achats App Store:', error);
+      Alert.alert('Erreur', error.message || 'Impossible de restaurer les achats.');
+    } finally {
+      isRestoringRef.current = false;
+      setRestoring(false);
     }
   };
 
@@ -281,17 +403,14 @@ export default function SubscriptionScreen({ navigation }) {
             text: 'Ouvrir les abonnements',
             onPress: async () => {
               try {
-                await showManageSubscriptions(profile.id);
+                await showManageSubscriptionsIOS();
               } catch (error) {
-                console.error('Erreur ouverture abonnements Apple:', error);
+                console.error('Erreur ouverture gestion des abonnements Apple:', error);
                 try {
                   await Linking.openURL('https://apps.apple.com/account/subscriptions');
                 } catch (linkError) {
                   console.error('Erreur ouverture réglages App Store:', linkError);
-                  Alert.alert(
-                    'Erreur',
-                    'Impossible d’ouvrir la gestion des abonnements Apple.'
-                  );
+                  Alert.alert('Erreur', 'Impossible d’ouvrir la gestion des abonnements Apple.');
                 }
               }
             },
@@ -338,32 +457,6 @@ export default function SubscriptionScreen({ navigation }) {
     );
   };
 
-  const handleRestorePurchases = async () => {
-    if (!profile?.id) return;
-    setRestoring(true);
-    try {
-      const customerInfo = await restorePurchases(profile.id);
-      const restoredSubscription = applyRevenueCatCustomerInfo(customerInfo);
-      if (!restoredSubscription) {
-        Alert.alert(
-          'Aucun abonnement à restaurer',
-          'Aucun abonnement App Store actif n’a été trouvé pour ce compte Apple.'
-        );
-        return;
-      }
-
-      Alert.alert(
-        'Achats restaurés',
-        `Votre abonnement ${restoredSubscription.tier.toUpperCase()} est actif.`
-      );
-    } catch (error) {
-      console.error('Erreur restauration achats:', error);
-      Alert.alert('Erreur', error.message || 'Impossible de restaurer les achats.');
-    } finally {
-      setRestoring(false);
-    }
-  };
-
   // ---- Rendu d'une carte de plan ----
   const renderPlanCard = (plan) => {
     const isCurrentPlan = currentTier === plan.id && !isExpired;
@@ -396,7 +489,9 @@ export default function SubscriptionScreen({ navigation }) {
 
         <View style={styles.priceRow}>
           <Text style={styles.price}>
-            {iosPackages[plan.id]?.product.priceString || plan.price}
+            {Platform.OS === 'ios'
+              ? appStoreSubscriptions.find((product) => getStoreProductId(product) === APP_STORE_PRODUCTS[plan.id])?.displayPrice || plan.price
+              : plan.price}
           </Text>
           <Text style={styles.period}>{plan.period}</Text>
         </View>
@@ -418,9 +513,9 @@ export default function SubscriptionScreen({ navigation }) {
             { backgroundColor: isCurrentPlan ? '#CCC' : plan.color },
           ]}
           onPress={() => handleSubscribe(plan)}
-          disabled={isCurrentPlan || isLoading}
+          disabled={isCurrentPlan || isLoading || (Platform.OS === 'ios' && (!appStoreConnected || appStoreProductsLoading))}
         >
-          {isLoading ? (
+          {isLoading || (Platform.OS === 'ios' && (!appStoreConnected || appStoreProductsLoading)) ? (
             <ActivityIndicator color="#FFF" />
           ) : (
             <Text style={styles.subscribeButtonText}>
@@ -449,12 +544,6 @@ export default function SubscriptionScreen({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {Platform.OS === 'ios' && iosOfferingsError && (
-          <Text style={styles.legalText}>
-            Achats App Store indisponibles : {iosOfferingsError}
-          </Text>
-        )}
-
         {subscription && subscription.tier !== 'free' && (
           <View style={styles.activeSubscriptionCard}>
             <Text style={styles.activeSubscriptionTitle}>Votre abonnement actuel</Text>
@@ -504,6 +593,12 @@ export default function SubscriptionScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
+        )}
+
+        {Platform.OS === 'ios' && appStoreError && (
+          <Text style={styles.legalText}>
+            Achats App Store indisponibles : {appStoreError}
+          </Text>
         )}
 
         {PLANS.map(renderPlanCard)}
