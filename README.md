@@ -142,7 +142,7 @@ EXPO_PUBLIC_STRIPE_PRODUCT_VIP=prod_UKSBmT4H0Q8BTT
 EXPO_PUBLIC_EMAILJS_SERVICE_ID=service_by97jni
 EXPO_PUBLIC_EMAILJS_TEMPLATE_ID=template_vznsj2m
 EXPO_PUBLIC_EMAILJS_PUBLIC_KEY=lhNTLB7ket2ged903
-EXPO_PUBLIC_EMAILJS_PRIVATE_KEY=JYmOy0I9kye_6q1xpQYz8
+# Ne jamais exposer une clé privée EmailJS via EXPO_PUBLIC_ ou dans l’application cliente.
 
 2. Créez email template pour emailJS
 

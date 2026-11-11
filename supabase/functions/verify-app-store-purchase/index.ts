@@ -61,12 +61,12 @@ const createAppleToken = async (): Promise<string> => {
 };
 
 const appleRequest = async (path: string, token: string): Promise<Response> => {
-  const productionUrl = `https://api.storekit.itunes.apple.com${path}`;
+  const productionUrl = `https://api.storekit.apple.com${path}`;
   const production = await fetch(productionUrl, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (production.status !== 404) return production;
-  return fetch(`https://api.storekit-sandbox.itunes.apple.com${path}`, {
+  if (production.status !== 404 && production.status !== 401) return production;
+  return fetch(`https://api.storekit-sandbox.apple.com${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 };

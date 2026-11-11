@@ -91,6 +91,7 @@ export default function SubscriptionScreen({ navigation }) {
   const [cancelling, setCancelling] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [appStoreError, setAppStoreError] = useState(null);
+  const [appStorePurchaseError, setAppStorePurchaseError] = useState(null);
   const [appStoreProductsLoading, setAppStoreProductsLoading] = useState(false);
   const processedTransactions = useRef(new Set());
   const isRestoringRef = useRef(false);
@@ -118,6 +119,11 @@ export default function SubscriptionScreen({ navigation }) {
       setLoading(null);
       if (error.code !== 'user-cancelled') {
         console.error('Erreur achat App Store:', error);
+        setAppStorePurchaseError({
+          code: error.code || 'unknown',
+          message: error.message || 'Erreur App Store inconnue.',
+          productId: error.productId || null,
+        });
         Alert.alert('Erreur App Store', error.message || 'Impossible de réaliser cet achat.');
       }
     },
@@ -138,6 +144,7 @@ export default function SubscriptionScreen({ navigation }) {
     processedTransactions.current.add(purchase.transactionId);
 
     try {
+      setAppStorePurchaseError(null);
       const isLocalStoreKitTest = __DEV__ && purchase.environmentIOS?.toLowerCase() === 'xcode';
       if (!isLocalStoreKitTest) {
         await verifyAppStorePurchase(purchase.transactionId, purchase.productId, isRestore);
@@ -206,6 +213,12 @@ export default function SubscriptionScreen({ navigation }) {
   }, [appStoreConnected, fetchProducts]);
 
   useEffect(() => {
+    if (Platform.OS !== 'ios' || !appStoreConnected) return;
+    const productIds = appStoreSubscriptions.map(getStoreProductId).filter(Boolean);
+    console.info('[IAP] StoreKit subscriptions loaded:', productIds.length ? productIds : '(none)');
+  }, [appStoreConnected, appStoreSubscriptions]);
+
+  useEffect(() => {
     if (Platform.OS !== 'ios' || !appStoreConnected || !profile?.id) return;
 
     getAvailablePurchases({ onlyIncludeActiveItemsIOS: true })
@@ -244,6 +257,7 @@ export default function SubscriptionScreen({ navigation }) {
       return;
     }
 
+    setAppStorePurchaseError(null);
     setLoading(plan.id);
 
     try {
@@ -255,13 +269,11 @@ export default function SubscriptionScreen({ navigation }) {
         const productIsAvailable = appStoreSubscriptions.some(
           (product) => getStoreProductId(product) === productId
         );
-        if (!productIsAvailable && !__DEV__) {
-          throw new Error(
-            appStoreError || 'Cette offre est introuvable dans App Store Connect. Vérifiez sa disponibilité.'
-          );
-        }
         if (!productIsAvailable) {
-          console.warn(`SKU ${productId} absent de la liste; tentative directe via StoreKit Debug.`);
+          console.warn('[IAP] SKU absent de la liste StoreKit; tentative d’achat directe:', {
+            requestedProductId: productId,
+            loadedProductIds: appStoreSubscriptions.map(getStoreProductId).filter(Boolean),
+          });
         }
 
         await requestPurchase({
@@ -601,6 +613,20 @@ export default function SubscriptionScreen({ navigation }) {
           </Text>
         )}
 
+        {Platform.OS === 'ios' && appStorePurchaseError && (
+          <View style={styles.iapDiagnostic}>
+            <Text style={styles.iapDiagnosticTitle}>Diagnostic App Store à transmettre</Text>
+            <Text style={styles.iapDiagnosticText}>Code : {appStorePurchaseError.code}</Text>
+            <Text style={styles.iapDiagnosticText}>
+              SKU demandé : {appStorePurchaseError.productId || 'inconnu'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              SKU reçus : {appStoreSubscriptions.map(getStoreProductId).filter(Boolean).join(', ') || '(aucun)'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>Détail : {appStorePurchaseError.message}</Text>
+          </View>
+        )}
+
         {PLANS.map(renderPlanCard)}
 
         {Platform.OS === 'ios' && (
@@ -755,6 +781,25 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 8,
     paddingHorizontal: 20,
+  },
+  iapDiagnostic: {
+    backgroundColor: '#FFF4F4',
+    borderColor: '#E8A0A0',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 12,
+  },
+  iapDiagnosticTitle: {
+    color: '#8E2323',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  iapDiagnosticText: {
+    color: '#6E3333',
+    fontSize: 12,
+    lineHeight: 18,
   },
   activeSubscriptionCard: {
     backgroundColor: '#FFF',

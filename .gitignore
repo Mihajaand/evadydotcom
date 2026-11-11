@@ -40,3 +40,6 @@ yarn-error.*
 # generated native projects
 /ios/
 /android
+# ia files
+/apple
+/errors

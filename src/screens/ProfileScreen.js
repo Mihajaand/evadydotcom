@@ -84,6 +84,10 @@ const ProfileScreen = ({ route, navigation }) => {
   const [selectedLifestyles, setSelectedLifestyles] = useState([]);
   const [displayedSubscription, setDisplayedSubscription] = useState(null);
 
+  const selectedPhotoIndex = selectedPhoto
+    ? photos.findIndex((photo) => photo.id === selectedPhoto.id)
+    : -1;
+
   // Charger les données au montage
   useEffect(() => {
     if (isOwnProfile) {
@@ -439,6 +443,13 @@ const ProfileScreen = ({ route, navigation }) => {
         },
       ]
     );
+  };
+
+  const navigateSelectedPhoto = (direction) => {
+    const nextIndex = selectedPhotoIndex + direction;
+    if (nextIndex >= 0 && nextIndex < photos.length) {
+      setSelectedPhoto(photos[nextIndex]);
+    }
   };
 
   const handleLikeUser = async () => {
@@ -1030,6 +1041,31 @@ const ProfileScreen = ({ route, navigation }) => {
                 style={styles.modalImage}
                 resizeMode="contain"
               />
+              <TouchableOpacity
+                accessibilityLabel="Photo précédente"
+                disabled={selectedPhotoIndex <= 0}
+                style={[
+                  styles.modalNavigationButton,
+                  styles.modalPreviousButton,
+                  selectedPhotoIndex <= 0 && styles.modalNavigationButtonDisabled,
+                ]}
+                onPress={() => navigateSelectedPhoto(-1)}
+              >
+                <Ionicons name="chevron-back" size={28} color={COLORS.white} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                accessibilityLabel="Photo suivante"
+                disabled={selectedPhotoIndex < 0 || selectedPhotoIndex >= photos.length - 1}
+                style={[
+                  styles.modalNavigationButton,
+                  styles.modalNextButton,
+                  (selectedPhotoIndex < 0 || selectedPhotoIndex >= photos.length - 1) &&
+                    styles.modalNavigationButtonDisabled,
+                ]}
+                onPress={() => navigateSelectedPhoto(1)}
+              >
+                <Ionicons name="chevron-forward" size={28} color={COLORS.white} />
+              </TouchableOpacity>
               {selectedPhoto.is_profile && (
                 <View style={styles.modalProfileTag}>
                   <Text style={styles.modalProfileTagText}>Photo de profil actuelle</Text>
@@ -1439,6 +1475,27 @@ const styles = StyleSheet.create({
   modalImage: {
     width: '100%',
     height: '100%',
+  },
+  modalNavigationButton: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  modalPreviousButton: {
+    left: 16,
+  },
+  modalNextButton: {
+    right: 16,
+  },
+  modalNavigationButtonDisabled: {
+    opacity: 0.35,
   },
   modalProfileTag: {
     position: 'absolute',
