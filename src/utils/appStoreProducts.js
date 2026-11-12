@@ -1,7 +1,7 @@
 export const APP_STORE_PRODUCTS = {
-  basic: 'basic',
-  premium: 'premium_abo',
   vip: 'evady_vip_monthly',
+  premium: 'premium_abo',
+  basic: 'basic',
 };
 
 export const APP_STORE_PRODUCT_TIERS = Object.fromEntries(

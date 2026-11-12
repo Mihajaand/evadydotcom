@@ -4,7 +4,7 @@
  * Boutons Valider / Annuler personnalisés pour le choix des photos (Android & iOS)
  * Boutons d'interaction (Like & Message) lors de la visite du profil d'un autre utilisateur
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -83,6 +83,7 @@ const ProfileScreen = ({ route, navigation }) => {
   const [selectedBeliefs, setSelectedBeliefs] = useState('');
   const [selectedLifestyles, setSelectedLifestyles] = useState([]);
   const [displayedSubscription, setDisplayedSubscription] = useState(null);
+  const photoTouchStart = useRef(null);
 
   const selectedPhotoIndex = selectedPhoto
     ? photos.findIndex((photo) => photo.id === selectedPhoto.id)
@@ -445,10 +446,28 @@ const ProfileScreen = ({ route, navigation }) => {
     );
   };
 
-  const navigateSelectedPhoto = (direction) => {
+  const navigateSelectedPhoto = useCallback((direction) => {
     const nextIndex = selectedPhotoIndex + direction;
     if (nextIndex >= 0 && nextIndex < photos.length) {
       setSelectedPhoto(photos[nextIndex]);
+    }
+  }, [photos, selectedPhotoIndex]);
+
+  const handlePhotoTouchStart = (event) => {
+    const touch = event.nativeEvent.touches?.[0] || event.nativeEvent;
+    photoTouchStart.current = { x: touch.pageX, y: touch.pageY };
+  };
+
+  const handlePhotoTouchEnd = (event) => {
+    const start = photoTouchStart.current;
+    photoTouchStart.current = null;
+    if (!start) return;
+
+    const touch = event.nativeEvent.changedTouches?.[0] || event.nativeEvent;
+    const deltaX = touch.pageX - start.x;
+    const deltaY = touch.pageY - start.y;
+    if (Math.abs(deltaX) >= 40 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      navigateSelectedPhoto(deltaX < 0 ? 1 : -1);
     }
   };
 
@@ -1011,7 +1030,14 @@ const ProfileScreen = ({ route, navigation }) => {
         animationType="fade"
         onRequestClose={() => setSelectedPhoto(null)}
       >
-        <View style={styles.modalContainer}>
+        <View
+          style={styles.modalContainer}
+          onTouchStartCapture={handlePhotoTouchStart}
+          onTouchEndCapture={handlePhotoTouchEnd}
+          onTouchCancel={() => {
+            photoTouchStart.current = null;
+          }}
+        >
           <View style={[styles.modalHeader, { top: Math.max(insets.top + 10, 50) }]}>
             <TouchableOpacity
               style={styles.modalCloseButton}

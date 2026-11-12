@@ -15,6 +15,7 @@ import {
   Platform,
   Linking,
 } from 'react-native';
+import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import Toast from 'react-native-toast-message';
 import { getAvailablePurchases, showManageSubscriptionsIOS, useIAP } from 'expo-iap';
@@ -77,6 +78,31 @@ const PLANS = [
 ];
 
 const getStoreProductId = (product) => product?.id || product?.productId;
+const getStoreProductIds = (products) =>
+  products.map(getStoreProductId).filter(Boolean);
+const createIapDiagnostic = ({
+  event,
+  productId = null,
+  error = null,
+  missingProductIds = [],
+  appStoreConnected,
+  appStoreSubscriptions,
+}) => ({
+  event,
+  timestamp: new Date().toISOString(),
+  platform: Platform.OS,
+  bundleIdentifier: Constants.expoConfig?.ios?.bundleIdentifier || 'inconnu',
+  appVersion: Constants.nativeAppVersion || Constants.expoConfig?.version || 'inconnue',
+  buildVersion: Constants.nativeBuildVersion || 'inconnu',
+  debugBuild: __DEV__,
+  appStoreConnected,
+  requestedProductIds: Object.values(APP_STORE_PRODUCTS),
+  returnedProductIds: getStoreProductIds(appStoreSubscriptions),
+  missingProductIds,
+  selectedProductId: productId || error?.productId || null,
+  errorCode: error?.code || (missingProductIds.length ? 'product-not-found' : null),
+  errorMessage: error?.message || null,
+});
 
 export default function SubscriptionScreen({ navigation }) {
   const { profile } = useAuthStore();
@@ -93,6 +119,8 @@ export default function SubscriptionScreen({ navigation }) {
   const [appStoreError, setAppStoreError] = useState(null);
   const [appStorePurchaseError, setAppStorePurchaseError] = useState(null);
   const [appStoreProductsLoading, setAppStoreProductsLoading] = useState(false);
+  const [appStoreProductsLoaded, setAppStoreProductsLoaded] = useState(false);
+  const [appStoreProductsRequestFailed, setAppStoreProductsRequestFailed] = useState(false);
   const processedTransactions = useRef(new Set());
   const isRestoringRef = useRef(false);
 
@@ -118,8 +146,16 @@ export default function SubscriptionScreen({ navigation }) {
     onPurchaseError: (error) => {
       setLoading(null);
       if (error.code !== 'user-cancelled') {
-        console.error('Erreur achat App Store:', error);
+        const diagnostic = createIapDiagnostic({
+          event: 'purchase-error',
+          productId: error.productId,
+          error,
+          appStoreConnected,
+          appStoreSubscriptions,
+        });
+        console.error('[IAP] Échec achat App Store:', error, JSON.stringify(diagnostic, null, 2));
         setAppStorePurchaseError({
+          ...diagnostic,
           code: error.code || 'unknown',
           message: error.message || 'Erreur App Store inconnue.',
           productId: error.productId || null,
@@ -128,8 +164,14 @@ export default function SubscriptionScreen({ navigation }) {
       }
     },
     onError: (error) => {
-      console.error('Erreur expo-iap:', error);
-      setAppStoreError(error.message);
+      const diagnostic = createIapDiagnostic({
+        event: 'iap-module-error',
+        error,
+        appStoreConnected,
+        appStoreSubscriptions,
+      });
+      console.error('[IAP] Erreur du module expo-iap:', error, JSON.stringify(diagnostic, null, 2));
+      setAppStoreError(error.message || 'Erreur inconnue du module expo-iap.');
     },
   });
 
@@ -193,18 +235,51 @@ export default function SubscriptionScreen({ navigation }) {
   }, [profile?.id]);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios' || !appStoreConnected) return;
+    if (Platform.OS !== 'ios') return;
+    if (!appStoreConnected) {
+      setAppStoreProductsLoading(false);
+      setAppStoreProductsLoaded(false);
+      return;
+    }
 
     let active = true;
+    setAppStoreProductsLoaded(false);
+    setAppStoreProductsRequestFailed(false);
     setAppStoreProductsLoading(true);
+    console.info('[IAP] Demande du catalogue App Store:', JSON.stringify(
+      createIapDiagnostic({
+        event: 'products-fetch-start',
+        appStoreConnected,
+        appStoreSubscriptions,
+      }),
+      null,
+      2
+    ));
     fetchProducts({
       skus: Object.values(APP_STORE_PRODUCTS),
       type: 'subs',
     }).catch((error) => {
-      console.error('Erreur chargement abonnements App Store:', error);
-      if (active) setAppStoreError(error.message);
+      const diagnostic = createIapDiagnostic({
+        event: 'products-fetch-error',
+        error,
+        appStoreConnected,
+        appStoreSubscriptions,
+      });
+      console.error('[IAP] Erreur de chargement du catalogue App Store:', error, JSON.stringify(diagnostic, null, 2));
+      if (active) {
+        setAppStoreError(error.message || 'Erreur inconnue pendant la lecture du catalogue App Store.');
+        setAppStoreProductsRequestFailed(true);
+        setAppStorePurchaseError({
+          ...diagnostic,
+          code: error.code || 'products-fetch-error',
+          message: error.message || 'Erreur inconnue pendant la lecture du catalogue App Store.',
+        });
+      }
     }).finally(() => {
-      if (active) setAppStoreProductsLoading(false);
+      if (active) {
+        setAppStoreProductsLoading(false);
+        setAppStoreProductsLoaded(true);
+      }
     });
 
     return () => {
@@ -213,10 +288,44 @@ export default function SubscriptionScreen({ navigation }) {
   }, [appStoreConnected, fetchProducts]);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios' || !appStoreConnected) return;
-    const productIds = appStoreSubscriptions.map(getStoreProductId).filter(Boolean);
-    console.info('[IAP] StoreKit subscriptions loaded:', productIds.length ? productIds : '(none)');
-  }, [appStoreConnected, appStoreSubscriptions]);
+    if (
+      Platform.OS !== 'ios' ||
+      !appStoreConnected ||
+      !appStoreProductsLoaded ||
+      appStoreProductsRequestFailed
+    ) return;
+
+    const returnedProductIds = getStoreProductIds(appStoreSubscriptions);
+    const missingProductIds = Object.values(APP_STORE_PRODUCTS).filter(
+      (productId) => !returnedProductIds.includes(productId)
+    );
+    const diagnostic = createIapDiagnostic({
+      event: 'products-fetch-result',
+      missingProductIds,
+      appStoreConnected,
+      appStoreSubscriptions,
+    });
+
+    console.info('[IAP] Résultat du catalogue App Store:', JSON.stringify(diagnostic, null, 2));
+    setAppStoreError(null);
+    if (missingProductIds.length) {
+      const message =
+        `Apple n’a renvoyé aucun produit pour le ou les SKU : ${missingProductIds.join(', ')}. ` +
+        'La fenêtre de paiement ne peut donc pas s’ouvrir. Vérifiez dans App Store Connect ' +
+        'les identifiants, les métadonnées et la disponibilité Sandbox; Apple demande aussi ' +
+        'que le premier groupe d’abonnements soit soumis avec une nouvelle version de l’app.';
+      setAppStorePurchaseError({
+        ...diagnostic,
+        code: 'product-not-found',
+        message,
+        productId: missingProductIds[0],
+      });
+    } else {
+      setAppStorePurchaseError((currentError) =>
+        currentError?.code === 'product-not-found' ? null : currentError
+      );
+    }
+  }, [appStoreConnected, appStoreProductsLoaded, appStoreProductsRequestFailed, appStoreSubscriptions]);
 
   useEffect(() => {
     if (Platform.OS !== 'ios' || !appStoreConnected || !profile?.id) return;
@@ -270,10 +379,30 @@ export default function SubscriptionScreen({ navigation }) {
           (product) => getStoreProductId(product) === productId
         );
         if (!productIsAvailable) {
-          console.warn('[IAP] SKU absent de la liste StoreKit; tentative d’achat directe:', {
-            requestedProductId: productId,
-            loadedProductIds: appStoreSubscriptions.map(getStoreProductId).filter(Boolean),
+          const diagnostic = createIapDiagnostic({
+            event: 'purchase-blocked-product-not-found',
+            productId,
+            missingProductIds: [productId],
+            appStoreConnected,
+            appStoreSubscriptions,
           });
+          const message =
+            `Apple ne renvoie pas le SKU « ${productId} ». Aucun achat n’a été lancé, ` +
+            'car StoreKit ne peut pas afficher la feuille de paiement sans produit disponible. ' +
+            'Vérifiez les identifiants et l’état de l’abonnement dans App Store Connect.';
+          console.error('[IAP] Achat bloqué: SKU absent du catalogue App Store:', JSON.stringify({
+            ...diagnostic,
+            errorMessage: message,
+          }, null, 2));
+          setAppStorePurchaseError({
+            ...diagnostic,
+            code: 'product-not-found',
+            message,
+            productId,
+          });
+          setLoading(null);
+          Alert.alert('Abonnement indisponible', message);
+          return;
         }
 
         await requestPurchase({
@@ -359,6 +488,22 @@ export default function SubscriptionScreen({ navigation }) {
     } catch (error) {
       setLoading(null);
       console.error('Erreur lors du paiement:', error);
+      if (Platform.OS === 'ios') {
+        const diagnostic = createIapDiagnostic({
+          event: 'purchase-request-error',
+          productId: APP_STORE_PRODUCTS[plan.id],
+          error,
+          appStoreConnected,
+          appStoreSubscriptions,
+        });
+        console.error('[IAP] Détails de la requête App Store:', JSON.stringify(diagnostic, null, 2));
+        setAppStorePurchaseError({
+          ...diagnostic,
+          code: error.code || 'unknown',
+          message: error.message || 'Erreur App Store inconnue.',
+          productId: error.productId || APP_STORE_PRODUCTS[plan.id],
+        });
+      }
       Alert.alert(
         'Erreur de paiement',
         error.message || 'Une erreur est survenue lors de la redirection vers le paiement.'
@@ -615,13 +760,37 @@ export default function SubscriptionScreen({ navigation }) {
 
         {Platform.OS === 'ios' && appStorePurchaseError && (
           <View style={styles.iapDiagnostic}>
-            <Text style={styles.iapDiagnosticTitle}>Diagnostic App Store à transmettre</Text>
+            <Text style={styles.iapDiagnosticTitle}>Diagnostic App Store</Text>
+            <Text style={styles.iapDiagnosticText}>
+              Événement : {appStorePurchaseError.event || 'purchase-error'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              Date : {appStorePurchaseError.timestamp || 'inconnue'}
+            </Text>
             <Text style={styles.iapDiagnosticText}>Code : {appStorePurchaseError.code}</Text>
+            <Text style={styles.iapDiagnosticText}>
+              Bundle ID : {appStorePurchaseError.bundleIdentifier || Constants.expoConfig?.ios?.bundleIdentifier || 'inconnu'}
+            </Text>
             <Text style={styles.iapDiagnosticText}>
               SKU demandé : {appStorePurchaseError.productId || 'inconnu'}
             </Text>
             <Text style={styles.iapDiagnosticText}>
-              SKU reçus : {appStoreSubscriptions.map(getStoreProductId).filter(Boolean).join(', ') || '(aucun)'}
+              SKU demandés : {(appStorePurchaseError.requestedProductIds || Object.values(APP_STORE_PRODUCTS)).join(', ')}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              SKU reçus : {(appStorePurchaseError.returnedProductIds || getStoreProductIds(appStoreSubscriptions)).join(', ') || '(aucun)'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              SKU absents : {(appStorePurchaseError.missingProductIds || []).join(', ') || '(aucun)'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              Connexion App Store : {appStorePurchaseError.appStoreConnected ? 'oui' : 'non'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              Build de développement : {appStorePurchaseError.debugBuild ? 'oui' : 'non'}
+            </Text>
+            <Text style={styles.iapDiagnosticText}>
+              Version / build : {appStorePurchaseError.appVersion || 'inconnue'} / {appStorePurchaseError.buildVersion || 'inconnu'}
             </Text>
             <Text style={styles.iapDiagnosticText}>Détail : {appStorePurchaseError.message}</Text>
           </View>
