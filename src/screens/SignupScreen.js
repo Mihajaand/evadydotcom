@@ -117,7 +117,6 @@ const SignupScreen = ({ navigation }) => {
       const serviceId = process.env.EXPO_PUBLIC_EMAILJS_SERVICE_ID;
       const templateId = process.env.EXPO_PUBLIC_EMAILJS_TEMPLATE_ID;
       const publicKey = process.env.EXPO_PUBLIC_EMAILJS_PUBLIC_KEY;
-      const privateKey = process.env.EXPO_PUBLIC_EMAILJS_PRIVATE_KEY;
 
       if (!serviceId || !templateId || !publicKey) {
         console.log('[Dev] Clefs EmailJS manquantes. Code de vérification :', code);
@@ -143,7 +142,6 @@ const SignupScreen = ({ navigation }) => {
             service_id: serviceId,
             template_id: templateId,
             user_id: publicKey,
-            ...(privateKey && { accessToken: privateKey }),
             template_params: {
               to_email: email.trim().toLowerCase(),
               email: email.trim().toLowerCase(),
