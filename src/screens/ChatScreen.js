@@ -303,7 +303,11 @@ const ChatScreen = ({ route, navigation }) => {
         <TouchableOpacity
           activeOpacity={0.95}
           onLongPress={() => isMe && handleLongPressMessage(item)}
-          style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}
+          style={[
+            styles.messageBubble,
+            isImage && styles.imageMessageBubble,
+            isMe ? styles.myMessage : styles.theirMessage,
+          ]}
         >
           {isImage ? (
             <TouchableOpacity onPress={() => setSelectedFullImage(imageUrl)}>
@@ -639,6 +643,9 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 18,
     marginBottom: 8,
+  },
+  imageMessageBubble: {
+    padding: 2,
   },
   myMessage: {
     alignSelf: 'flex-end',

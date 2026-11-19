@@ -17,9 +17,11 @@ import {
   Dimensions,
   Animated,
   Alert,
+  Linking,
   PanResponder,
   ScrollView,
   Platform,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../utils/constants';
@@ -36,10 +38,15 @@ import useNotificationStore from '../store/notificationStore';
 import LeafletMap from '../components/LeafletMap';
 
 const { width, height } = Dimensions.get('window');
+const ADMIN_CONTACT_EMAIL = 'mihhja90@gmail.com';
 
 const HomeScreen = ({ navigation }) => {
   const { user, profile } = useAuthStore();
   const unreadCount = useNotificationStore((state) => state.unreadCount);
+  const [contactUsername, setContactUsername] = useState(profile?.full_name || '');
+  const [contactEmail, setContactEmail] = useState(user?.email || '');
+  const [contactMessage, setContactMessage] = useState('');
+  const [isOpeningEmail, setIsOpeningEmail] = useState(false);
   const [profiles, setProfiles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -121,6 +128,11 @@ const HomeScreen = ({ navigation }) => {
 
   const currentProfile = filteredProfiles[currentIndex];
   const currentCompatibility = currentProfile ? computeCompatibilityScore(profile, currentProfile) : undefined;
+
+  useEffect(() => {
+    setContactUsername((value) => value || profile?.full_name || '');
+    setContactEmail((value) => value || user?.email || '');
+  }, [profile?.full_name, user?.email]);
 
   const [flyingHearts, setFlyingHearts] = useState([]);
   const likeBtnScale = useRef(new Animated.Value(1)).current;
@@ -388,7 +400,7 @@ const HomeScreen = ({ navigation }) => {
 
   const rotate = pan.x.interpolate({
     inputRange: [-width / 2, 0, width / 2],
-    outputRange: ['-1deg', '0deg', '1deg'],
+    outputRange: ['-8deg', '0deg', '8deg'],
     extrapolate: 'clamp',
   });
 
@@ -569,6 +581,36 @@ const HomeScreen = ({ navigation }) => {
     }, 600);
   };
 
+  const handleContactSubmit = async () => {
+    const username = contactUsername.trim();
+    const email = contactEmail.trim();
+    const message = contactMessage.trim();
+
+    if (!username || !email || !message) {
+      Alert.alert('Formulaire incomplet', 'Veuillez remplir les trois champs.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('E-mail invalide', 'Veuillez vérifier votre adresse e-mail.');
+      return;
+    }
+
+    const subject = 'Message depuis E-Vady';
+    const body = `Nom d'utilisateur : ${username}\nE-mail : ${email}\n\nMessage :\n${message}`;
+    const mailtoUrl = `mailto:${ADMIN_CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+    setIsOpeningEmail(true);
+    try {
+      await Linking.openURL(mailtoUrl);
+    } catch (error) {
+      console.error("Erreur lors de l'ouverture de l'application e-mail :", error);
+      Alert.alert('Erreur', "Impossible d'ouvrir l'application e-mail sur cet appareil.");
+    } finally {
+      setIsOpeningEmail(false);
+    }
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -578,8 +620,7 @@ const HomeScreen = ({ navigation }) => {
       },
       onPanResponderMove: (evt, gestureState) => {
         if (!isTransitioning.current) {
-          pan.x.setValue(gestureState.dx);
-          pan.y.setValue(gestureState.dy);
+          pan.setValue({ x: gestureState.dx, y: 0 });
         }
       },
       onPanResponderRelease: (e, gestureState) => {
@@ -589,16 +630,16 @@ const HomeScreen = ({ navigation }) => {
         if (isSwiped && gestureState.dx > 0) {
           isTransitioning.current = true;
           Animated.timing(pan, {
-            toValue: { x: width + 100, y: gestureState.dy },
+            toValue: { x: width + 100, y: 0 },
             duration: 250,
             useNativeDriver: true,
           }).start(() => {
-            handlePassSwipeRef.current?.();
+            handleLikeSwipeRef.current?.();
           });
         } else if (isSwiped && gestureState.dx < 0) {
           isTransitioning.current = true;
           Animated.timing(pan, {
-            toValue: { x: -width - 100, y: gestureState.dy },
+            toValue: { x: -width - 100, y: 0 },
             duration: 250,
             useNativeDriver: true,
           }).start(() => {
@@ -612,6 +653,15 @@ const HomeScreen = ({ navigation }) => {
             useNativeDriver: true,
           }).start();
         }
+      },
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderTerminate: () => {
+        Animated.spring(pan, {
+          toValue: { x: 0, y: 0 },
+          friction: 6,
+          tension: 40,
+          useNativeDriver: true,
+        }).start();
       },
     })
   ).current;
@@ -830,6 +880,7 @@ const HomeScreen = ({ navigation }) => {
           style={styles.discoveryScroll}
           contentContainerStyle={styles.discoveryScrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {!currentProfile ? (
             <View style={styles.centerContainer}>
@@ -961,6 +1012,60 @@ const HomeScreen = ({ navigation }) => {
                 <Ionicons name="heart" size={16} color={COLORS.primary} />
                 <Text style={styles.aboutUsFooterText}>Fait avec passion depuis Mada</Text>
               </View>
+            </View>
+          </View>
+
+          <View style={styles.contactContainer}>
+            <View style={styles.aboutUsHeader}>
+              <View style={styles.aboutUsIconContainer}>
+                <Ionicons name="mail-outline" size={22} color={COLORS.white} />
+              </View>
+              <Text style={styles.aboutUsTitle}>Contacter l'administrateur</Text>
+            </View>
+            <View style={styles.contactCard}>
+              <Text style={styles.contactLabel}>Nom d'utilisateur</Text>
+              <TextInput
+                style={styles.contactInput}
+                value={contactUsername}
+                onChangeText={setContactUsername}
+                placeholder="Votre nom d'utilisateur"
+                placeholderTextColor={COLORS.gray}
+                autoCapitalize="words"
+                returnKeyType="next"
+              />
+              <Text style={styles.contactLabel}>E-mail</Text>
+              <TextInput
+                style={styles.contactInput}
+                value={contactEmail}
+                onChangeText={setContactEmail}
+                placeholder="votre@email.com"
+                placeholderTextColor={COLORS.gray}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+              />
+              <Text style={styles.contactLabel}>Message</Text>
+              <TextInput
+                style={[styles.contactInput, styles.contactMessageInput]}
+                value={contactMessage}
+                onChangeText={setContactMessage}
+                placeholder="Comment pouvons-nous vous aider ?"
+                placeholderTextColor={COLORS.gray}
+                multiline
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={[styles.contactSubmitBtn, isOpeningEmail && styles.contactSubmitBtnDisabled]}
+                onPress={handleContactSubmit}
+                disabled={isOpeningEmail}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="send-outline" size={18} color={COLORS.white} />
+                <Text style={styles.contactSubmitText}>
+                  {isOpeningEmail ? "Ouverture de l'e-mail..." : "Envoyer un e-mail"}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
@@ -1396,6 +1501,56 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.gray,
+  },
+  contactContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 24,
+  },
+  contactCard: {
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+  },
+  contactLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.black,
+    marginBottom: 6,
+  },
+  contactInput: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: COLORS.black,
+    marginBottom: 14,
+  },
+  contactMessageInput: {
+    minHeight: 110,
+  },
+  contactSubmitBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 2,
+  },
+  contactSubmitBtnDisabled: {
+    opacity: 0.65,
+  },
+  contactSubmitText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
 
