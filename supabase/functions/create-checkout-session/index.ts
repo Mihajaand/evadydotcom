@@ -5,17 +5,22 @@
 // ============================================================
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ---- En-têtes CORS ----
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Content-Type': 'application/json',
 };
 
 serve(async (req: Request) => {
   // Gérer le preflight CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+  if (req.method !== 'POST') {
+    return Response.json({ error: 'Méthode non autorisée.' }, { status: 405, headers: corsHeaders });
   }
 
   try {
@@ -24,12 +29,29 @@ serve(async (req: Request) => {
       throw new Error('STRIPE_SECRET_KEY non configurée');
     }
 
-    // ---- Récupérer les données de la requête ----
-    const { plan, userId, email } = await req.json();
-
-    if (!userId) {
-      throw new Error('userId est obligatoire');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Configuration Supabase serveur incomplète.');
     }
+    if (!accessToken) {
+      return Response.json({ error: 'Authentification requise.' }, { status: 401, headers: corsHeaders });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !user) {
+      return Response.json({ error: 'Session utilisateur invalide.' }, { status: 401, headers: corsHeaders });
+    }
+
+    // ---- Récupérer les données de la requête ----
+    const { plan, userId: requestedUserId } = await req.json();
+    if (requestedUserId && requestedUserId !== user.id) {
+      return Response.json({ error: 'Le compte ne correspond pas à la session active.' }, { status: 403, headers: corsHeaders });
+    }
+    const userId = user.id;
+    const email = user.email;
 
     // ---- Mapping plan → Price ID Stripe ----
     const priceMap: Record<string, string> = {
@@ -93,8 +115,11 @@ serve(async (req: Request) => {
 
     const session = await stripeResponse.json();
 
-    if (session.error) {
-      throw new Error(session.error.message);
+    if (!stripeResponse.ok) {
+      throw new Error(session.error?.message || `Stripe a refusé le paiement (HTTP ${stripeResponse.status}).`);
+    }
+    if (typeof session.url !== 'string' || !session.url) {
+      throw new Error('Stripe n’a pas retourné de lien de paiement.');
     }
 
     // ---- Retourner l'URL de checkout ----
@@ -104,7 +129,7 @@ serve(async (req: Request) => {
         sessionId: session.id,
       }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         status: 200,
       }
     );
@@ -114,7 +139,7 @@ serve(async (req: Request) => {
     return new Response(
       JSON.stringify({ error: error.message || 'Une erreur est survenue' }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         status: 400,
       }
     );

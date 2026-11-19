@@ -4,7 +4,7 @@
  * Boutons Valider / Annuler personnalisés pour le choix des photos (Android & iOS)
  * Boutons d'interaction (Like & Message) lors de la visite du profil d'un autre utilisateur
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,11 @@ import {
   Modal,
   Platform,
 } from 'react-native';
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { customAlert } from '../utils/helpers';
 
@@ -51,6 +56,29 @@ const PROFESSION_OPTIONS = [
   'Autre 👤'
 ];
 
+const PROFILE_TIER_THEMES = {
+  free: {
+    background: COLORS.white,
+    surface: COLORS.white,
+    accent: COLORS.white,
+  },
+  basic: {
+    background: '#E1F3FF',
+    surface: '#F6FBFF',
+    accent: '#38A9E8',
+  },
+  premium: {
+    background: '#DDE2E9',
+    surface: '#F7F8FA',
+    accent: '#8795A8',
+  },
+  vip: {
+    background: '#f5cb8b',
+    surface: '#ffe1bf',
+    accent: '#D49B00',
+  },
+};
+
 const ProfileScreen = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
   const { user, profile: myProfile, logout, updateProfile } = useAuthStore();
@@ -83,7 +111,6 @@ const ProfileScreen = ({ route, navigation }) => {
   const [selectedBeliefs, setSelectedBeliefs] = useState('');
   const [selectedLifestyles, setSelectedLifestyles] = useState([]);
   const [displayedSubscription, setDisplayedSubscription] = useState(null);
-  const photoTouchStart = useRef(null);
 
   const selectedPhotoIndex = selectedPhoto
     ? photos.findIndex((photo) => photo.id === selectedPhoto.id)
@@ -211,8 +238,8 @@ const ProfileScreen = ({ route, navigation }) => {
     const finalizePhotos = (items) => {
       let updated = [...items];
       if (activeAvatar) {
-        const hasProfile = updated.some(p => p.url === activeAvatar || p.is_profile);
-        if (!hasProfile) {
+        const hasAvatar = updated.some(p => p.url === activeAvatar);
+        if (!hasAvatar) {
           updated.unshift({
             id: `profile-${effectiveUid}-${Date.now()}`,
             user_id: effectiveUid,
@@ -220,17 +247,11 @@ const ProfileScreen = ({ route, navigation }) => {
             is_profile: true,
             created_at: new Date().toISOString(),
           });
-        } else {
-          updated = updated.map(p => {
-            if (p.url === activeAvatar) {
-              return { ...p, is_profile: true };
-            }
-            if (p.url !== activeAvatar && p.is_profile) {
-              return { ...p, is_profile: false };
-            }
-            return p;
-          });
         }
+        updated = updated.map(p => ({
+          ...p,
+          is_profile: p.url === activeAvatar,
+        }));
       }
       return updated.slice(0, 6);
     };
@@ -453,22 +474,26 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   }, [photos, selectedPhotoIndex]);
 
-  const handlePhotoTouchStart = (event) => {
-    const touch = event.nativeEvent.touches?.[0] || event.nativeEvent;
-    photoTouchStart.current = { x: touch.pageX, y: touch.pageY };
-  };
+  const photoSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-15, 15])
+        .runOnJS(true)
+        .onEnd((event) => {
+          if (Math.abs(event.translationX) >= 40 || Math.abs(event.velocityX) >= 500) {
+            const swipeDirection = Math.abs(event.translationX) >= 40
+              ? event.translationX
+              : event.velocityX;
+            navigateSelectedPhoto(swipeDirection < 0 ? 1 : -1);
+          }
+        }),
+    [navigateSelectedPhoto]
+  );
 
-  const handlePhotoTouchEnd = (event) => {
-    const start = photoTouchStart.current;
-    photoTouchStart.current = null;
-    if (!start) return;
-
-    const touch = event.nativeEvent.changedTouches?.[0] || event.nativeEvent;
-    const deltaX = touch.pageX - start.x;
-    const deltaY = touch.pageY - start.y;
-    if (Math.abs(deltaX) >= 40 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      navigateSelectedPhoto(deltaX < 0 ? 1 : -1);
-    }
+  const openAvatarPhoto = () => {
+    const avatarPhoto = photos.find((photo) => photo.url === profile?.avatar_url);
+    if (avatarPhoto) setSelectedPhoto(avatarPhoto);
   };
 
   const handleLikeUser = async () => {
@@ -596,10 +621,15 @@ const ProfileScreen = ({ route, navigation }) => {
     vip: 'VIP',
   };
 
+  const subscriptionTier = String(
+    (isOwnProfile ? subscription?.tier : displayedSubscription?.tier) || 'free'
+  ).trim().toLowerCase();
+  const profileTheme = PROFILE_TIER_THEMES[subscriptionTier] || PROFILE_TIER_THEMES.free;
+
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.white }}>
+    <View style={{ flex: 1, backgroundColor: profileTheme.background }}>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: profileTheme.background }]}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: isOwnProfile ? 110 : 130 + insets.bottom },
@@ -629,21 +659,54 @@ const ProfileScreen = ({ route, navigation }) => {
         </View>
 
         {/* Avatar principal */}
-        <View style={styles.avatarSection}>
-          <View style={styles.avatarContainer}>
+        <View
+          style={[
+            styles.avatarSection,
+            subscriptionTier !== 'free' && styles.tierAvatarSection,
+            subscriptionTier !== 'free' && {
+              backgroundColor: profileTheme.surface,
+              borderColor: profileTheme.accent,
+              shadowColor: profileTheme.accent,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.avatarContainer,
+              subscriptionTier !== 'free' && {
+                padding: 4,
+                borderRadius: 68,
+                borderWidth: 3,
+                borderColor: profileTheme.accent,
+                backgroundColor: profileTheme.surface,
+                shadowColor: profileTheme.accent,
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.55,
+                shadowRadius: 12,
+                elevation: 8,
+              },
+            ]}
+          >
             {loadingAvatar ? (
               <View style={styles.avatarLoadingContainer}>
                 <ActivityIndicator size="large" color={COLORS.primary} />
               </View>
             ) : (
-              <Image
-                source={
-                  profile?.avatar_url
-                    ? { uri: profile.avatar_url }
-                    : require('../../assets/default-avatar.png')
-                }
-                style={styles.mainAvatar}
-              />
+              <TouchableOpacity
+                onPress={openAvatarPhoto}
+                disabled={!profile?.avatar_url || loadingPhotos}
+                accessibilityRole="button"
+                accessibilityLabel="Ouvrir les photos du profil"
+              >
+                <Image
+                  source={
+                    profile?.avatar_url
+                      ? { uri: profile.avatar_url }
+                      : require('../../assets/default-avatar.png')
+                  }
+                  style={styles.mainAvatar}
+                />
+              </TouchableOpacity>
             )}
             {isOwnProfile && (
               <TouchableOpacity
@@ -666,15 +729,35 @@ const ProfileScreen = ({ route, navigation }) => {
             <TouchableOpacity
               style={[
                 styles.subBadge,
-                displayedSubscription?.tier === 'vip' && styles.subBadgeVip,
-                displayedSubscription?.tier === 'premium' && styles.subBadgePremium,
+                subscriptionTier === 'basic' && styles.subBadgeBasic,
+                subscriptionTier === 'vip' && styles.subBadgeVip,
+                subscriptionTier === 'premium' && styles.subBadgePremium,
               ]}
               onPress={() => isOwnProfile && navigation.navigate('Subscription')}
               disabled={!isOwnProfile}
             >
-              <Ionicons name="diamond-outline" size={14} color={COLORS.white} />
-              <Text style={styles.subBadgeText}>
-                {tierLabel[displayedSubscription?.tier] || 'Gratuit'}
+              <Ionicons
+                name="diamond-outline"
+                size={14}
+                color={
+                  subscriptionTier === 'vip'
+                    ? '#765600'
+                    : subscriptionTier === 'premium'
+                      ? '#475569'
+                      : subscriptionTier === 'basic'
+                        ? '#62A9D6'
+                        : COLORS.white
+                }
+              />
+              <Text
+                style={[
+                  styles.subBadgeText,
+                  subscriptionTier === 'basic' && styles.subBadgeBasicText,
+                  subscriptionTier === 'premium' && styles.subBadgePremiumText,
+                  subscriptionTier === 'vip' && styles.subBadgeVipText,
+                ]}
+              >
+                {tierLabel[subscriptionTier] || 'Gratuit'}
               </Text>
             </TouchableOpacity>
           )}
@@ -1030,76 +1113,73 @@ const ProfileScreen = ({ route, navigation }) => {
         animationType="fade"
         onRequestClose={() => setSelectedPhoto(null)}
       >
-        <View
-          style={styles.modalContainer}
-          onTouchStartCapture={handlePhotoTouchStart}
-          onTouchEndCapture={handlePhotoTouchEnd}
-          onTouchCancel={() => {
-            photoTouchStart.current = null;
-          }}
-        >
-          <View style={[styles.modalHeader, { top: Math.max(insets.top + 10, 50) }]}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setSelectedPhoto(null)}
-            >
-              <Ionicons name="close" size={24} color={COLORS.white} />
-            </TouchableOpacity>
+        <GestureHandlerRootView style={styles.modalGestureRoot}>
+          <GestureDetector gesture={photoSwipeGesture}>
+            <View style={styles.modalContainer}>
+              <View style={[styles.modalHeader, { top: Math.max(insets.top + 10, 50) }]}>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setSelectedPhoto(null)}
+                >
+                  <Ionicons name="close" size={24} color={COLORS.white} />
+                </TouchableOpacity>
 
-            {isOwnProfile && (
-              <TouchableOpacity
-                style={styles.modalDeleteButton}
-                onPress={() => {
-                  if (selectedPhoto) {
-                    handleDeletePhoto(selectedPhoto.id);
-                  }
-                }}
-              >
-                <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
-              </TouchableOpacity>
-            )}
-          </View>
+                {isOwnProfile && (
+                  <TouchableOpacity
+                    style={styles.modalDeleteButton}
+                    onPress={() => {
+                      if (selectedPhoto) {
+                        handleDeletePhoto(selectedPhoto.id);
+                      }
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
+                  </TouchableOpacity>
+                )}
+              </View>
 
-          {selectedPhoto && (
-            <View style={styles.modalImageContainer}>
-              <Image
-                source={{ uri: selectedPhoto.url }}
-                style={styles.modalImage}
-                resizeMode="contain"
-              />
-              <TouchableOpacity
-                accessibilityLabel="Photo précédente"
-                disabled={selectedPhotoIndex <= 0}
-                style={[
-                  styles.modalNavigationButton,
-                  styles.modalPreviousButton,
-                  selectedPhotoIndex <= 0 && styles.modalNavigationButtonDisabled,
-                ]}
-                onPress={() => navigateSelectedPhoto(-1)}
-              >
-                <Ionicons name="chevron-back" size={28} color={COLORS.white} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                accessibilityLabel="Photo suivante"
-                disabled={selectedPhotoIndex < 0 || selectedPhotoIndex >= photos.length - 1}
-                style={[
-                  styles.modalNavigationButton,
-                  styles.modalNextButton,
-                  (selectedPhotoIndex < 0 || selectedPhotoIndex >= photos.length - 1) &&
-                    styles.modalNavigationButtonDisabled,
-                ]}
-                onPress={() => navigateSelectedPhoto(1)}
-              >
-                <Ionicons name="chevron-forward" size={28} color={COLORS.white} />
-              </TouchableOpacity>
-              {selectedPhoto.is_profile && (
-                <View style={styles.modalProfileTag}>
-                  <Text style={styles.modalProfileTagText}>Photo de profil actuelle</Text>
+              {selectedPhoto && (
+                <View style={styles.modalImageContainer}>
+                  <Image
+                    source={{ uri: selectedPhoto.url }}
+                    style={styles.modalImage}
+                    resizeMode="contain"
+                  />
+                  <TouchableOpacity
+                    accessibilityLabel="Photo précédente"
+                    disabled={selectedPhotoIndex <= 0}
+                    style={[
+                      styles.modalNavigationButton,
+                      styles.modalPreviousButton,
+                      selectedPhotoIndex <= 0 && styles.modalNavigationButtonDisabled,
+                    ]}
+                    onPress={() => navigateSelectedPhoto(-1)}
+                  >
+                    <Ionicons name="chevron-back" size={28} color={COLORS.white} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityLabel="Photo suivante"
+                    disabled={selectedPhotoIndex < 0 || selectedPhotoIndex >= photos.length - 1}
+                    style={[
+                      styles.modalNavigationButton,
+                      styles.modalNextButton,
+                      (selectedPhotoIndex < 0 || selectedPhotoIndex >= photos.length - 1) &&
+                        styles.modalNavigationButtonDisabled,
+                    ]}
+                    onPress={() => navigateSelectedPhoto(1)}
+                  >
+                    <Ionicons name="chevron-forward" size={28} color={COLORS.white} />
+                  </TouchableOpacity>
+                  {selectedPhoto.is_profile && (
+                    <View style={styles.modalProfileTag}>
+                      <Text style={styles.modalProfileTagText}>Photo de profil actuelle</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
-          )}
-        </View>
+          </GestureDetector>
+        </GestureHandlerRootView>
       </Modal>
     </View>
   );
@@ -1128,6 +1208,17 @@ const styles = StyleSheet.create({
   avatarSection: {
     alignItems: 'center',
     marginVertical: 15,
+  },
+  tierAvatarSection: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingVertical: 18,
+    borderRadius: 24,
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
   },
   avatarContainer: {
     position: 'relative',
@@ -1181,15 +1272,33 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   subBadgePremium: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#E1E5EB',
+    borderWidth: 1,
+    borderColor: '#C4CBD5',
   },
   subBadgeVip: {
-    backgroundColor: '#FFD700',
+    backgroundColor: '#F6D979',
+    borderWidth: 1,
+    borderColor: '#D5B347',
+  },
+  subBadgeBasic: {
+    backgroundColor: '#F8FCFF',
+    borderWidth: 1,
+    borderColor: '#C6E6F7',
   },
   subBadgeText: {
     color: COLORS.white,
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  subBadgeBasicText: {
+    color: '#42677E',
+  },
+  subBadgePremiumText: {
+    color: '#475569',
+  },
+  subBadgeVipText: {
+    color: '#765600',
   },
   editSection: {
     paddingHorizontal: 20,
@@ -1477,6 +1586,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
     justifyContent: 'center',
+  },
+  modalGestureRoot: {
+    flex: 1,
   },
   modalHeader: {
     position: 'absolute',

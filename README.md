@@ -115,12 +115,39 @@ Pour activer la validation sécurisée des transactions Apple :
    les secrets Edge Function Supabase (ne les ajoutez jamais à l’application) :
    `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`,
    `APP_STORE_PRIVATE_KEY` (clé `.p8`, avec des retours à la ligne), et
-   `APP_STORE_BUNDLE_ID=com.mihajamahefa.evady`.
+   `APP_STORE_BUNDLE_ID=com.mihajamahefa.evady`. Définissez aussi un secret
+   aléatoire `APP_STORE_NOTIFICATION_SECRET` côté Supabase.
 3. Appliquez `supabase/add_payment_provider_to_subscriptions.sql` et
-   `supabase/add_app_store_subscription_columns.sql` dans le SQL Editor Supabase.
+   `supabase/add_app_store_subscription_columns.sql` et
+   `supabase/add_app_store_transaction_log.sql` dans le SQL Editor Supabase.
 4. Déployez `supabase functions deploy verify-app-store-purchase`.
+   Déployez aussi `supabase functions deploy app-store-server-notifications`.
 5. Construisez un development build ou une version TestFlight; Expo Go ne
    prend pas en charge les achats natifs.
+6. Dans App Store Connect → votre app → App Store Server Notifications,
+   configurez l’URL de production et l’URL Sandbox vers
+   `https://<project-ref>.supabase.co/functions/v1/app-store-server-notifications?secret=<APP_STORE_NOTIFICATION_SECRET>`.
+
+Les achats Apple validés par Apple mettent à jour `subscriptions` et sont
+journalisés dans `app_store_transactions`. La colonne `environment` indique
+`Production` ou `Sandbox`; `is_test` permet de filtrer les transactions de test.
+`event_type`, `event_subtype` et `status` permettent d’identifier la notification
+et l’issue de chaque transaction.
+Les notifications App Store Server journalisent aussi les renouvellements et
+synchronisent l’état de l’abonnement sans attendre la prochaine ouverture de l’app.
+Les achats StoreKit simulés depuis Xcode sont également journalisés avec
+`environment = Xcode`, `verification_status = simulated` et `status = simulated`.
+Ils ne sont pas validés par Apple et ne créent jamais d'abonnement côté serveur.
+Consultez ces lignes dans Supabase Studio → Table Editor → `app_store_transactions`.
+
+Le compte Sandbox Apple n’a pas besoin d’utiliser la même adresse e-mail que le
+compte E-VADY : l’achat est lié au compte E-VADY connecté lors de l’achat.
+Apple n’autorise toutefois qu’un abonnement actif par compte Apple dans un même
+groupe d’abonnements. Changer de Basic à Premium modifie cet abonnement, ce
+n’est pas un second paiement pour un autre compte E-VADY. Pour tester plusieurs
+comptes E-VADY indépendamment, utilisez un testeur Sandbox différent pour
+chacun. L’application vérifie maintenant le lien avant d’ouvrir la feuille
+d’achat et ne restaure plus automatiquement l’achat d’un autre compte E-VADY.
 
 ## 📦 variable d'environmment
 

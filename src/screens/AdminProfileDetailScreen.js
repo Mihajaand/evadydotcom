@@ -347,6 +347,17 @@ const AdminProfileDetailScreen = ({ route, navigation }) => {
                   subscription.stripe_sub_id.substring(0, 18) + '…'
                 } />
               ) : null}
+              {subscription?.payment_provider === 'app_store' ? (
+                <InfoRow
+                  icon="logo-apple"
+                  label="Paiement Apple"
+                  value={subscription.app_store_environment === 'Sandbox'
+                    ? 'Sandbox (test)'
+                    : subscription.app_store_environment === 'Production'
+                    ? 'Production'
+                    : 'Environnement inconnu'}
+                />
+              ) : null}
             </View>
           </View>
         </View>

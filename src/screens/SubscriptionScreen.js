@@ -22,10 +22,11 @@ import { getAvailablePurchases, showManageSubscriptionsIOS, useIAP } from 'expo-
 
 // Imports des modules internes
 import { COLORS } from '../utils/constants';
-import { STRIPE_CONFIG } from '../utils/stripe';
 import useAuthStore from '../store/authStore';
 import useSubscriptionStore from '../store/subscriptionStore';
 import { APP_STORE_PRODUCTS, getTierForAppStoreProduct } from '../utils/appStoreProducts';
+import { getEdgeFunctionErrorMessage } from '../utils/edgeFunctionError';
+import { supabase } from '../supabase/client';
 
 // ---- Définition des plans ----
 const PLANS = [
@@ -111,6 +112,8 @@ export default function SubscriptionScreen({ navigation }) {
     fetchSubscription,
     cancelSubscription,
     verifyAppStorePurchase,
+    checkAppStorePurchaseAccount,
+    recordStoreKitTestPurchase,
     setLocalAppStoreSubscription,
   } = useSubscriptionStore();
   const [loading, setLoading] = useState(null); // ID du plan en cours de traitement
@@ -188,7 +191,9 @@ export default function SubscriptionScreen({ navigation }) {
     try {
       setAppStorePurchaseError(null);
       const isLocalStoreKitTest = __DEV__ && purchase.environmentIOS?.toLowerCase() === 'xcode';
-      if (!isLocalStoreKitTest) {
+      if (isLocalStoreKitTest) {
+        await recordStoreKitTestPurchase(userId, purchase, tier);
+      } else {
         await verifyAppStorePurchase(purchase.transactionId, purchase.productId, isRestore);
       }
       await finishTransaction({ purchase, isConsumable: false });
@@ -204,8 +209,12 @@ export default function SubscriptionScreen({ navigation }) {
       if (!silent) {
         Toast.show({
           type: 'success',
-          text1: isRestore ? 'Achats restaurés' : 'Abonnement activé',
-          text2: `Votre abonnement ${PLANS.find((plan) => plan.id === tier)?.name || tier} est actif.`,
+          text1: isLocalStoreKitTest
+            ? 'Simulation StoreKit enregistrée'
+            : isRestore ? 'Achats restaurés' : 'Abonnement activé',
+          text2: isLocalStoreKitTest
+            ? 'Test Xcode uniquement : aucun paiement réel.'
+            : `Votre abonnement ${PLANS.find((plan) => plan.id === tier)?.name || tier} est actif.`,
           position: 'bottom',
           visibilityTime: 4000,
         });
@@ -215,7 +224,7 @@ export default function SubscriptionScreen({ navigation }) {
       processedTransactions.current.delete(purchase.transactionId);
       throw error;
     }
-  }, [profile?.id, verifyAppStorePurchase, setLocalAppStoreSubscription, finishTransaction, fetchSubscription, navigation]);
+  }, [profile?.id, verifyAppStorePurchase, checkAppStorePurchaseAccount, recordStoreKitTestPurchase, setLocalAppStoreSubscription, finishTransaction, fetchSubscription, navigation]);
 
   handleAppStorePurchaseRef.current = handleAppStorePurchase;
 
@@ -327,24 +336,6 @@ export default function SubscriptionScreen({ navigation }) {
     }
   }, [appStoreConnected, appStoreProductsLoaded, appStoreProductsRequestFailed, appStoreSubscriptions]);
 
-  useEffect(() => {
-    if (Platform.OS !== 'ios' || !appStoreConnected || !profile?.id) return;
-
-    getAvailablePurchases({ onlyIncludeActiveItemsIOS: true })
-      .then(async (purchases) => {
-        const latestPurchase = purchases
-          .filter((purchase) => getTierForAppStoreProduct(purchase.productId))
-          .sort((left, right) => right.transactionDate - left.transactionDate)[0];
-        if (latestPurchase) {
-          await handleAppStorePurchase(latestPurchase, true, true);
-        }
-      })
-      .catch((error) => {
-        console.error('Erreur synchronisation des achats Apple:', error);
-        setAppStoreError(error.message);
-      });
-  }, [appStoreConnected, profile?.id, handleAppStorePurchase]);
-
   // ---- Gérer la souscription ou le renouvellement ----
   const handleSubscribe = async (plan) => {
     if (plan.id === 'free') {
@@ -405,6 +396,19 @@ export default function SubscriptionScreen({ navigation }) {
           return;
         }
 
+        const existingApplePurchases = await getAvailablePurchases({
+          onlyIncludeActiveItemsIOS: true,
+        });
+        const latestExistingPurchase = existingApplePurchases
+          .filter((purchase) => getTierForAppStoreProduct(purchase.productId))
+          .sort((left, right) => right.transactionDate - left.transactionDate)[0];
+        if (latestExistingPurchase) {
+          await checkAppStorePurchaseAccount(
+            latestExistingPurchase.transactionId,
+            latestExistingPurchase.productId
+          );
+        }
+
         await requestPurchase({
           type: 'subs',
           request: {
@@ -418,28 +422,21 @@ export default function SubscriptionScreen({ navigation }) {
       }
 
       // Appeler l'Edge Function Supabase pour générer la session Checkout Stripe
-      const response = await fetch(
-        `${STRIPE_CONFIG.FUNCTION_URL}/create-checkout-session`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: {
             plan: plan.id,
             userId: profile.id,
             email: profile.email || null,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
+          },
+      });
+      if (error) {
+        throw new Error(await getEdgeFunctionErrorMessage(
+          error,
+          'Impossible de créer la session de paiement.'
+        ));
       }
 
-      if (!data.url) {
+      if (!data?.url) {
         throw new Error('URL de paiement introuvable');
       }
 
@@ -523,14 +520,26 @@ export default function SubscriptionScreen({ navigation }) {
     isRestoringRef.current = true;
     setAppStoreError(null);
     try {
-      await restorePurchases();
+      let restoreError = null;
+      try {
+        await restorePurchases();
+      } catch (error) {
+        restoreError = error;
+        console.warn('Restauration native Apple indisponible; tentative de lecture des achats actifs:', error);
+      }
+
       const purchases = await getAvailablePurchases({ onlyIncludeActiveItemsIOS: true });
       const appStorePurchases = purchases.filter((purchase) =>
         getTierForAppStoreProduct(purchase.productId)
       );
 
       if (!appStorePurchases.length) {
-        Alert.alert('Aucun abonnement', 'Aucun abonnement App Store actif n’a été trouvé.');
+        Alert.alert(
+          restoreError ? 'Restauration Apple indisponible' : 'Aucun abonnement',
+          restoreError
+            ? `${restoreError.message || 'Apple n’a pas pu restaurer les achats.'} Aucun achat actif n’a pu être récupéré.`
+            : 'Aucun abonnement App Store actif n’a été trouvé.'
+        );
         return;
       }
 
@@ -550,7 +559,7 @@ export default function SubscriptionScreen({ navigation }) {
   const handleCancelSubscription = () => {
     if (!subscription?.expires_at) return;
 
-    if (subscription.payment_provider === 'app_store') {
+    if (subscription.payment_provider === 'app_store' && Platform.OS === 'ios') {
       Alert.alert(
         'Gérer l’abonnement Apple',
         'Apple gère la résiliation et les renouvellements. Vous pouvez modifier ou annuler votre abonnement dans les réglages de votre compte App Store.',
@@ -559,8 +568,9 @@ export default function SubscriptionScreen({ navigation }) {
           {
             text: 'Ouvrir les abonnements',
             onPress: async () => {
+              let changedPurchases;
               try {
-                await showManageSubscriptionsIOS();
+                changedPurchases = await showManageSubscriptionsIOS();
               } catch (error) {
                 console.error('Erreur ouverture gestion des abonnements Apple:', error);
                 try {
@@ -569,10 +579,56 @@ export default function SubscriptionScreen({ navigation }) {
                   console.error('Erreur ouverture réglages App Store:', linkError);
                   Alert.alert('Erreur', 'Impossible d’ouvrir la gestion des abonnements Apple.');
                 }
+                return;
+              }
+
+              try {
+                const purchases = changedPurchases.length
+                  ? changedPurchases
+                  : await getAvailablePurchases({ onlyIncludeActiveItemsIOS: true });
+                const latestPurchase = purchases
+                  .filter((purchase) => getTierForAppStoreProduct(purchase.productId))
+                  .sort((left, right) => right.transactionDate - left.transactionDate)[0];
+
+                if (!latestPurchase) {
+                  await fetchSubscription(profile.id);
+                  Alert.alert(
+                    'Gestion Apple terminée',
+                    'L’App Store ne retourne aucun abonnement actif. La résiliation sera répercutée dans l’application après synchronisation avec Apple.'
+                  );
+                  return;
+                }
+
+                await verifyAppStorePurchase(
+                  latestPurchase.transactionId,
+                  latestPurchase.productId,
+                  true
+                );
+                await fetchSubscription(profile.id);
+                await useAuthStore.getState().fetchProfile(profile.id);
+                Alert.alert(
+                  'Abonnement synchronisé',
+                  useSubscriptionStore.getState().subscription?.cancel_at_period_end
+                    ? 'Le renouvellement automatique est désactivé. Vos avantages restent actifs jusqu’à la date d’échéance.'
+                    : 'L’état de votre abonnement Apple a été actualisé.'
+                );
+              } catch (error) {
+                console.error('Erreur synchronisation abonnement après gestion Apple:', error);
+                Alert.alert(
+                    'Synchronisation à réessayer',
+                    error.message || 'Apple a ouvert la gestion, mais l’état de l’abonnement n’a pas pu être actualisé.'
+                );
               }
             },
           },
         ]
+      );
+      return;
+    }
+    if (subscription.payment_provider === 'app_store') {
+      Alert.alert(
+        'Abonnement Apple',
+        'Cet abonnement est géré par Apple et ne peut pas être résilié depuis Stripe. Annulez-le depuis les réglages de votre compte Apple.'
       );
       return;
     }
@@ -712,19 +768,27 @@ export default function SubscriptionScreen({ navigation }) {
 
               <View style={[
                 styles.statusBadge, 
-                { backgroundColor: (subscription.cancel_at_period_end || isExpired) ? '#FFEBEB' : '#E8F5E9' }
+                { backgroundColor: subscription.local_storekit_test
+                  ? '#FFF3E0'
+                  : (subscription.cancel_at_period_end || isExpired) ? '#FFEBEB' : '#E8F5E9' }
               ]}>
                 <Text style={[
                   styles.statusBadgeText, 
-                  { color: (subscription.cancel_at_period_end || isExpired) ? '#D32F2F' : '#2E7D32' }
+                  { color: subscription.local_storekit_test
+                    ? '#E65100'
+                    : (subscription.cancel_at_period_end || isExpired) ? '#D32F2F' : '#2E7D32' }
                 ]}>
-                  {isExpired ? 'Expiré' : subscription.cancel_at_period_end ? 'Résilié' : 'Actif'}
+                  {subscription.local_storekit_test
+                    ? 'Simulation Xcode'
+                    : isExpired ? 'Expiré' : subscription.cancel_at_period_end ? 'Résilié' : 'Actif'}
                 </Text>
               </View>
             </View>
 
             <Text style={styles.activeSubscriptionDetails}>
-              {isExpired
+              {subscription.local_storekit_test
+                ? 'Simulation locale StoreKit uniquement : aucun paiement réel et aucun abonnement actif enregistré côté serveur.'
+                : isExpired
                 ? "Votre abonnement est arrivé à échéance. Vous pouvez souscrire à une nouvelle offre ci-dessous."
                 : subscription.cancel_at_period_end
                 ? `Votre abonnement prendra fin le ${new Date(subscription.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}. Le renouvellement automatique est désactivé.`
@@ -743,8 +807,12 @@ export default function SubscriptionScreen({ navigation }) {
                 ) : (
                   <Text style={styles.cancelButtonText}>
                     {subscription.payment_provider === 'app_store'
-                      ? 'Gérer dans l’App Store'
-                      : "Annuler l'abonnement"}
+                      ? Platform.OS === 'ios'
+                        ? 'Gérer dans l’App Store'
+                        : 'Annulation via Apple'
+                      : Platform.OS === 'ios'
+                        ? "Annuler l'abonnement"
+                        : 'Désactiver le renouvellement automatique'}
                   </Text>
                 )}
               </TouchableOpacity>

@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand';
 import { supabase } from '../supabase/client';
+import { getEdgeFunctionErrorMessage } from '../utils/edgeFunctionError';
 
 const useSubscriptionStore = create((set, get) => ({
   // État
@@ -31,20 +32,19 @@ const useSubscriptionStore = create((set, get) => ({
         new Date(data.expires_at) < new Date() &&
         (data.payment_provider === 'app_store' || data.cancel_at_period_end)
       ) {
-        // Si l'utilisateur a annulé le renouvellement, on repasse en gratuit
+        const expiredAppleSubscription = data.payment_provider === 'app_store';
         const { data: updated, error: updateError } = await supabase
             .from('subscriptions')
-            .update({ 
-              tier: 'free', 
-              stripe_sub_id: null, 
-              stripe_subscription_id: null, 
-              apple_original_transaction_id: null,
-              apple_transaction_id: null,
-              apple_product_id: null,
-              payment_provider: null,
-              expires_at: null,
-              cancel_at_period_end: false 
-            })
+            .update(expiredAppleSubscription
+              ? { tier: 'free', cancel_at_period_end: false }
+              : {
+                  tier: 'free',
+                  stripe_sub_id: null,
+                  stripe_subscription_id: null,
+                  payment_provider: null,
+                  expires_at: null,
+                  cancel_at_period_end: false,
+                })
             .eq('user_id', userId)
             .select()
             .single();
@@ -70,13 +70,64 @@ const useSubscriptionStore = create((set, get) => ({
       }
     );
 
-    if (error) throw error;
+    if (error) {
+      throw new Error(await getEdgeFunctionErrorMessage(
+        error,
+        'Impossible de vérifier l’achat auprès de l’App Store.'
+      ));
+    }
     if (!data?.active || !data?.subscription) {
       throw new Error(data?.error || 'Aucun abonnement Apple actif trouvé.');
     }
 
     set({ subscription: data.subscription });
     return data.subscription;
+  },
+
+  checkAppStorePurchaseAccount: async (transactionId, productId) => {
+    const { data, error } = await supabase.functions.invoke(
+      'verify-app-store-purchase',
+      {
+        body: { transactionId, productId, isRestore: true, preflightOnly: true },
+      }
+    );
+
+    if (error) {
+      throw new Error(await getEdgeFunctionErrorMessage(
+        error,
+        'Impossible de vérifier le compte associé à cet abonnement Apple.'
+      ));
+    }
+    if (!data?.canPurchase) {
+      throw new Error(data?.error || 'Cet abonnement Apple est associé à un autre compte E-VADY.');
+    }
+  },
+
+  recordStoreKitTestPurchase: async (userId, purchase, tier) => {
+    const { error } = await supabase
+      .from('app_store_transactions')
+      .upsert({
+        user_id: userId,
+        transaction_id: purchase.transactionId,
+        product_id: purchase.productId,
+        tier,
+        environment: 'Xcode',
+        verification_status: 'simulated',
+        status: 'simulated',
+        event_type: 'XCODE_SIMULATION',
+        original_transaction_id: purchase.originalTransactionIdentifierIOS || null,
+        transaction_date: purchase.transactionDate
+          ? new Date(purchase.transactionDate).toISOString()
+          : null,
+        expires_at: purchase.expirationDateIOS
+          ? new Date(purchase.expirationDateIOS).toISOString()
+          : null,
+      }, {
+        onConflict: 'environment,transaction_id',
+        ignoreDuplicates: true,
+      });
+
+    if (error) throw error;
   },
 
   setLocalAppStoreSubscription: (tier, expiresAt) => {
@@ -97,21 +148,18 @@ const useSubscriptionStore = create((set, get) => ({
   cancelSubscription: async (userId) => {
     set({ loading: true });
     try {
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/cancel-subscription`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
-            'apikey': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ userId }),
-        }
-      );
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      const { data, error } = await supabase.functions.invoke('cancel-subscription', {
+        body: { userId },
+      });
+      if (error) {
+        throw new Error(await getEdgeFunctionErrorMessage(
+          error,
+          'Impossible de désactiver le renouvellement automatique.'
+        ));
+      }
+      if (!data?.success) {
+        throw new Error(data?.error || 'La résiliation n’a pas été confirmée par Stripe.');
+      }
 
       // Mettre à jour l'état local
       set((state) => ({

@@ -7,6 +7,12 @@ project_id = "e-vady"
 [functions.verify-app-store-purchase]
 verify_jwt = true
 
+[functions.app-store-server-notifications]
+verify_jwt = false
+
+[functions.create-checkout-session]
+verify_jwt = true
+
 [api]
 enabled = true
 # Port to use for the API URL.
