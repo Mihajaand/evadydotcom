@@ -98,6 +98,10 @@ const ProfileScreen = ({ route, navigation }) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [loadingAvatar, setLoadingAvatar] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
+  const [deletionModalVisible, setDeletionModalVisible] = useState(false);
+  const [deletionPassword, setDeletionPassword] = useState('');
+  const [deletionError, setDeletionError] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   // Validation / confirmation manuelle de la photo sélectionnée (iOS & Android)
   const [pendingPhoto, setPendingPhoto] = useState(null);
@@ -613,6 +617,43 @@ const ProfileScreen = ({ route, navigation }) => {
     );
   };
 
+  const handleRequestAccountDeletion = async () => {
+    if (!deletionPassword) {
+      setDeletionError('Veuillez saisir votre mot de passe.');
+      return;
+    }
+
+    if (!user?.email) {
+      setDeletionError('Impossible de vérifier votre compte. Veuillez vous reconnecter.');
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeletionError('');
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: deletionPassword,
+      });
+      if (authError) {
+        setDeletionError('Mot de passe incorrect. Veuillez réessayer.');
+        return;
+      }
+
+      await updateProfile({
+        is_active: false,
+        is_online: false,
+        account_deletion_requested_at: new Date().toISOString(),
+      });
+      setDeletionModalVisible(false);
+      setDeletionPassword('');
+    } catch (error) {
+      setDeletionError(error.message || 'Impossible d’envoyer la demande de suppression.');
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const age = calculateAge(profile?.birthdate);
   const tierLabel = {
     free: 'Gratuit',
@@ -1018,6 +1059,22 @@ const ProfileScreen = ({ route, navigation }) => {
             )}
 
             <TouchableOpacity
+              style={[styles.actionRow, deletingAccount && styles.logoutButtonDisabled]}
+              onPress={() => {
+                setDeletionPassword('');
+                setDeletionError('');
+                setDeletionModalVisible(true);
+              }}
+              disabled={deletingAccount}
+            >
+              <View style={styles.actionLeft}>
+                <Ionicons name="person-remove-outline" size={22} color={COLORS.danger} />
+                <Text style={[styles.actionText, styles.logoutText]}>Supprimer mon compte</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.actionRow, saving && styles.logoutButtonDisabled]}
               onPress={handleLogout}
               disabled={saving}
@@ -1063,6 +1120,58 @@ const ProfileScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
       )}
+
+      <Modal
+        visible={deletionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deletingAccount) setDeletionModalVisible(false);
+        }}
+      >
+        <View style={styles.confirmModalContainer}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Confirmer la suppression</Text>
+            <Text style={styles.deletionDescription}>
+              Saisissez votre mot de passe pour confirmer. Votre demande sera examinée par un
+              administrateur sous 72 heures et votre compte sera désactivé immédiatement.
+            </Text>
+            <Input
+              label="Mot de passe"
+              value={deletionPassword}
+              onChangeText={(value) => {
+                setDeletionPassword(value);
+                setDeletionError('');
+              }}
+              placeholder="Votre mot de passe"
+              secureTextEntry
+              error={deletionError}
+              editable={!deletingAccount}
+              style={styles.deletionPasswordInput}
+            />
+            <View style={styles.confirmButtonsRow}>
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.cancelBtn]}
+                onPress={() => setDeletionModalVisible(false)}
+                disabled={deletingAccount}
+              >
+                <Text style={styles.cancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.deleteAccountBtn]}
+                onPress={handleRequestAccountDeletion}
+                disabled={deletingAccount}
+              >
+                {deletingAccount ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <Text style={styles.validateBtnText}>Confirmer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* MODAL CUSTOM : Confirmation / Validation de la photo */}
       <Modal
@@ -1547,6 +1656,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 15,
     color: COLORS.black,
+  },
+  deletionDescription: {
+    color: COLORS.darkGray,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  deletionPasswordInput: {
+    width: '100%',
+    marginBottom: 12,
+  },
+  deleteAccountBtn: {
+    backgroundColor: COLORS.danger,
   },
   confirmImagePreview: {
     width: 200,

@@ -244,6 +244,21 @@ const AdminProfileDetailScreen = ({ route, navigation }) => {
           ) : null}
         </View>
 
+        {profile.account_deletion_requested_at && (
+          <View style={styles.deletionRequestCard}>
+            <Ionicons name="hourglass-outline" size={20} color={COLORS.danger} />
+            <View style={styles.deletionRequestText}>
+              <Text style={styles.deletionRequestTitle}>Demande de suppression en attente</Text>
+              <Text style={styles.deletionRequestDate}>
+                Reçue le {new Date(profile.account_deletion_requested_at).toLocaleString('fr-FR')}
+              </Text>
+              <Text style={styles.deletionRequestDate}>
+                À valider par un administrateur sous 72 heures.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* ── Informations Admin ─────────────────────────────────────────── */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
@@ -508,6 +523,31 @@ const styles = StyleSheet.create({
   // ── Scroll ──────────────────────────────────────────────────────────────
   scrollContent: {
     paddingBottom: 20,
+  },
+  deletionRequestCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+    backgroundColor: 'rgba(239,68,68,0.06)',
+  },
+  deletionRequestText: {
+    flex: 1,
+    gap: 4,
+  },
+  deletionRequestTitle: {
+    color: COLORS.danger,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  deletionRequestDate: {
+    color: COLORS.darkGray,
+    fontSize: 12,
   },
 
   // ── Hero ────────────────────────────────────────────────────────────────

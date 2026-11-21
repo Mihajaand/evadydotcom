@@ -5,7 +5,8 @@ import { COLORS } from '../utils/constants';
 import useAuthStore from '../store/authStore';
 
 const DisabledAccountScreen = () => {
-  const logout = useAuthStore((state) => state.logout);
+  const { logout, profile } = useAuthStore();
+  const deletionRequested = Boolean(profile?.account_deletion_requested_at);
 
   const [loading, setLoading] = React.useState(false);
 
@@ -26,8 +27,9 @@ const DisabledAccountScreen = () => {
         <Ionicons name="lock-closed-outline" size={64} color={COLORS.primary} />
         <Text style={styles.title}>Compte désactivé</Text>
         <Text style={styles.subtitle}>
-          Votre compte a été temporairement désactivé par un administrateur.
-          {'\n'}Veuillez contacter le support ou réessayer plus tard.
+          {deletionRequested
+            ? 'Votre demande de suppression doit être validée par un administrateur dans un délai de 72 heures. En attendant, votre compte est désactivé.'
+            : 'Votre compte a été temporairement désactivé par un administrateur.\nVeuillez contacter le support ou réessayer plus tard.'}
         </Text>
         <TouchableOpacity style={[styles.logoutButton, loading && styles.logoutButtonDisabled]} onPress={handleLogout} disabled={loading}>
           {loading ? (
